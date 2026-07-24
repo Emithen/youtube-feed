@@ -1,0 +1,21 @@
+# Mac↔Windows를 오가도 파일이 동일하게 취급되도록 저장소에 규칙을 고정한다.
+# (로컬 git 설정과 무관하게 이 파일이 우선한다. 새 기기에서 clone해도 자동 적용.)
+
+# 모든 텍스트 파일의 줄바꿈을 LF로 정규화 (CRLF/LF 섞임으로 인한 diff 지옥 방지)
+* text=auto eol=lf
+
+# 명시적으로 텍스트로 취급 + LF 고정
+*.py    text eol=lf
+*.md    text eol=lf
+*.html  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.txt   text eol=lf
+*.json  text eol=lf
+
+# 바이너리: 줄바꿈/인코딩 변환을 절대 하지 않는다
+*.pyc   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
