@@ -12,8 +12,17 @@
 #  channel_id는 채널마다 절대 안 바뀌므로, 한 번 뽑아 상수로 박고 RSS만 읽는다.
 #  RSS는 유튜브 공식 경로라 데이터센터에서도 안정적이다.
 
+import sys
 import urllib.request
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone, timedelta
+
+# 한글 출력이 어디서든 안 깨지게 UTF-8 강제.
+# (Windows 터미널 기본 cp949, GitHub Actions의 C 로케일에서 print가 터지는 것 방지)
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 # (주제, 이름, channel_id) — channel_id는 안 바뀌므로 상수로 박아둔다.
 # 새 채널을 넣고 싶으면 로컬에서 id를 한 번 뽑아 이 리스트에 한 줄 추가하면 됨.
@@ -62,6 +71,7 @@ def build_html(sections):
             )
 
     body = "\n".join(rows)
+    now = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M")
     return f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -71,6 +81,7 @@ def build_html(sections):
 </head>
 <body>
   <h1>최신 영상 모음</h1>
+  <p><small>업데이트: {now} (KST)</small></p>
   {body}
 </body>
 </html>"""
@@ -87,6 +98,7 @@ if __name__ == "__main__":
         sections.append((topic, name, videos))
 
     html = build_html(sections)
-    with open("index.html", "w", encoding="utf-8") as f:
+    # encoding·newline을 못박아 Mac/Windows 어디서 실행해도 결과 파일이 동일하게 나오게 한다.
+    with open("index.html", "w", encoding="utf-8", newline="\n") as f:
         f.write(html)  # ← 이 파일을 GitHub Pages가 공개함
     print("index.html 생성 완료")
