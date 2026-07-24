@@ -6,6 +6,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# collect.py가 만들어내는 결과물 — main엔 소스(collect.py)만 두고,
-# 실제 배포(index.html)는 GitHub Actions가 gh-pages 브랜치로 발행한다.
-index.html
+# ⚠️ index.html은 여기서 무시하면 안 된다!
+# 배포 워크플로가 publish_dir "." 를 gh-pages로 올릴 때 이 .gitignore를 그대로 따르기 때문에,
+# index.html을 무시하면 사이트에서 빠져 404가 난다. (2026-07-24 실제로 겪음)
+# main에 빌드 결과물을 안 섞고 싶으면, 나중에 collect.py 출력을 dist/ 폴더로 바꾸고
+# publish_dir을 dist로 지정하는 방식으로 분리하는 게 정석.
