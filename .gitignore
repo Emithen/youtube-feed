@@ -1,0 +1,11 @@
+# Python 컴파일 결과 (기기마다 달라 충돌의 원인 — 절대 커밋하지 않는다)
+__pycache__/
+*.pyc
+
+# OS가 만드는 잡파일
+.DS_Store
+Thumbs.db
+
+# collect.py가 만들어내는 결과물 — main엔 소스(collect.py)만 두고,
+# 실제 배포(index.html)는 GitHub Actions가 gh-pages 브랜치로 발행한다.
+index.html
