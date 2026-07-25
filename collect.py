@@ -12,6 +12,7 @@
 #  channel_id는 채널마다 절대 안 바뀌므로, 한 번 뽑아 상수로 박고 RSS만 읽는다.
 #  RSS는 유튜브 공식 경로라 데이터센터에서도 안정적이다.
 
+import os
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -59,8 +60,15 @@ def latest_videos(channel_id, limit=3):
     return videos
 
 
+TITLE = "최신 영상 모음"
+
+
 def build_html(sections):
-    """sections = [(주제, 이름, [(title, link, date), ...]), ...] → HTML 문자열."""
+    """sections = [(주제, 이름, [(title, link, date), ...]), ...] → HTML 문자열.
+
+    화면(HTML/CSS)은 template.html에 있고, 여기선 데이터만 채운다.
+    → 화면 고칠 때 파이썬 안 건드림. CSS 중괄호 이스케이프도 필요 없음.
+    """
     rows = []
     for topic, name, videos in sections:
         rows.append(f"<h2>[{topic}] {name}</h2>")
@@ -72,39 +80,19 @@ def build_html(sections):
 
     body = "\n".join(rows)
     now = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M")
-    return f"""<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>최신 영상 모음</title>
-  <style>
-    :root {{ color-scheme: light dark; }}        /* 폰 다크모드 자동 대응 */
-    body {{
-      font-family: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
-      max-width: 640px; margin: 0 auto; padding: 16px;
-      line-height: 1.6;                          /* 줄 간격 -> 읽기 편하게 */
-    }}
-    h1 {{ font-size: 1.5rem; margin-bottom: 2px; }}
-    h2 {{                                         /* 채널 제목 왼쪽 색막대로 구분 */
-      font-size: 1.05rem; margin: 26px 0 8px;
-      padding-left: 8px; border-left: 4px solid #4a90e2;
-    }}
-    p {{ margin: 7px 0; }}
-    a {{                                          /* 링크 크고 굵게 -> 폰에서 누르기 쉬움 */
-      font-size: 1.05rem; text-decoration: none;
-      color: #4a90e2; font-weight: 600;
-    }}
-    a:hover, a:active {{ text-decoration: underline; }}
-    small {{ color: #8a8a8a; }}                   /* 날짜.시각은 은은하게 */
-  </style>
-</head>
-<body>
-  <h1>최신 영상 모음</h1>
-  <p><small>업데이트: {now} (KST)</small></p>
-  {body}
-</body>
-</html>"""
+
+    # template.html을 collect.py와 같은 폴더에서 읽는다 (실행 위치와 무관하게).
+    template_path = os.path.join(os.path.dirname(__file__), "template.html")
+    with open(template_path, encoding="utf-8") as f:
+        template = f.read()
+
+    # 토큰 치환. str.format이 아니라 replace라 CSS의 { } 를 건드리지 않는다.
+    return (
+        template
+        .replace("{{TITLE}}", TITLE)
+        .replace("{{UPDATED}}", now)
+        .replace("{{BODY}}", body)
+    )
 
 
 if __name__ == "__main__":
