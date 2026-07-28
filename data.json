@@ -1,5 +1,5 @@
 {
-  "updated": "2026-07-28 20:08",
+  "updated": "2026-07-28 21:01",
   "sections": [
     {
       "topic": "포챔스",
@@ -27,6 +27,11 @@
       "name": "즈랑",
       "videos": [
         {
+          "title": "켄타 켄타: 같이 나쁜 짓을 하자 (포켓몬 챔피언스)",
+          "link": "https://www.youtube.com/watch?v=7FAk-uC7eqc",
+          "date": "2026-07-28"
+        },
+        {
           "title": "고오스가 펀치 기술을 쓸 수 있는 이유 #포켓몬",
           "link": "https://www.youtube.com/shorts/xWFLeBF-Z_0",
           "date": "2026-07-28"
@@ -35,11 +40,6 @@
           "title": "흔들풍손 카드 일러스트의 숨은 디테일? #포켓몬",
           "link": "https://www.youtube.com/shorts/A-9oTNB752w",
           "date": "2026-07-26"
-        },
-        {
-          "title": "스스로 생각하고 행동하는 삼삼드래를 만났습니다. (트라이얼 챌린지)",
-          "link": "https://www.youtube.com/watch?v=UOziKLeAaUM",
-          "date": "2026-07-25"
         }
       ]
     },
