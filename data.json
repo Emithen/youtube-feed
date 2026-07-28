@@ -1,5 +1,5 @@
 {
-  "updated": "2026-07-28 17:42",
+  "updated": "2026-07-28 18:03",
   "sections": [
     {
       "topic": "포챔스",
@@ -69,6 +69,11 @@
       "name": "체스인사이드",
       "videos": [
         {
+          "title": "파비아노 카루아나, 캡틴 아메리카 시절",
+          "link": "https://www.youtube.com/watch?v=aeg0XHp6nKs",
+          "date": "2026-07-28"
+        },
+        {
           "title": "체스 레이팅 2889 시절 매그너스 칼슨의 경기력",
           "link": "https://www.youtube.com/watch?v=hxuPl58KwdU",
           "date": "2026-07-27"
@@ -77,11 +82,6 @@
           "title": "체스 짬에서 나오는 엔드게임 실력",
           "link": "https://www.youtube.com/watch?v=CgVpxATNJ-E",
           "date": "2026-07-23"
-        },
-        {
-          "title": "쉽게 회복되지 않는 체스 세계 챔피언의 자신감",
-          "link": "https://www.youtube.com/watch?v=q1fdEJcsu4U",
-          "date": "2026-07-22"
         }
       ]
     },
