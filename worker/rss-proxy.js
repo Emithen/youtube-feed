@@ -49,21 +49,25 @@ export default {
       const feed = await fetchFeed(channelId, limit);
       return json({ channelId, ...feed }, 200, cors);
     } catch (e) {
-      return json({ error: String(e.message || e) }, 502, cors);
+      // 실패는 캐시하지 않는다. 일시적 장애가 10분간 굳어버리면 안 되니까.
+      return json({ error: String(e.message || e) }, 502, corsHeaders(origin, "no-store"));
     }
   },
 };
 
 // ────────────────────────── CORS ──────────────────────────
-function corsHeaders(origin) {
+function corsHeaders(origin, cache = "public, max-age=600") {
   const allow = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
     "Access-Control-Allow-Origin": allow,
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Max-Age": "86400",
     "Content-Type": "application/json; charset=utf-8",
-    // 같은 채널을 자주 부르면 엣지 캐시가 대신 답한다 (유튜브 부담·속도 개선)
-    "Cache-Control": "public, max-age=600",
+    // ⚠️ 필수: 응답의 CORS 헤더가 Origin마다 다르므로 캐시도 Origin별로 나눠 저장해야 한다.
+    //  없으면 localhost에서 만든 응답이 github.io 요청에 재사용돼 CORS 불일치로 죽는다(실제로 겪음).
+    "Vary": "Origin",
+    // 같은 채널을 자주 부르면 캐시가 대신 답한다 (유튜브 부담·속도 개선)
+    "Cache-Control": cache,
   };
 }
 
