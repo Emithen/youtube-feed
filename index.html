@@ -23,13 +23,62 @@
     }
     a:hover, a:active { text-decoration: underline; }
     small { color: #8a8a8a; }                   /* 날짜.시각은 은은하게 */
+
+    /* ── 내 채널 추가 UI ── */
+    .controls {
+      border: 1px solid #8883; border-radius: 10px;
+      padding: 10px 14px; margin: 14px 0 22px;
+    }
+    .controls summary { cursor: pointer; font-weight: 600; }
+    #addForm { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+    #addForm input {
+      padding: 8px 10px; border: 1px solid #8886; border-radius: 8px;
+      font-size: 1rem; background: transparent; color: inherit;
+    }
+    #addForm .row { display: flex; gap: 8px; }
+    #addForm .row input { flex: 1; min-width: 0; }
+    #addForm button {
+      padding: 8px 14px; border: 0; border-radius: 8px;
+      background: #4a90e2; color: #fff; font-weight: 600; font-size: 1rem; cursor: pointer;
+    }
+    #addForm button:disabled { opacity: .5; cursor: default; }
+    .status { font-size: .9rem; color: #8a8a8a; min-height: 1em; }
+    .hint { font-size: .8rem; color: #8a8a8a; margin: 8px 0 0; }
+    .group {                                     /* "내 채널 / 추천 채널" 구분 라벨 */
+      font-size: .8rem; color: #8a8a8a; letter-spacing: .04em; margin: 24px 0 0;
+    }
+    button.del {                                 /* 채널 삭제 버튼 */
+      margin-left: 10px; font-size: .75rem; font-weight: 500;
+      color: #c0392b; background: transparent; border: 1px solid #c0392b55;
+      border-radius: 6px; padding: 1px 8px; cursor: pointer; vertical-align: middle;
+    }
   </style>
 </head>
 <body>
-  <!-- 이 페이지는 "빈 껍데기"다. 데이터는 app.js가 data.json을 읽어 채운다. -->
+  <!-- 이 페이지는 "빈 껍데기"다.
+       - 추천 채널: app.js가 data.json(서버가 미리 수집)을 읽어 채운다.
+       - 내 채널: 사용자가 추가 → localStorage에 저장 → app.js가 프록시로 직접 수집. -->
   <h1>최신 영상 모음</h1>
   <p><small id="updated">불러오는 중…</small></p>
-  <div id="app"></div>
+
+  <details class="controls" open>
+    <summary>＋ 내 채널 추가</summary>
+    <form id="addForm">
+      <input id="chInput" type="text"
+             placeholder="채널 링크 / @핸들 / 채널ID(UC…)" required>
+      <div class="row">
+        <input id="chTopic" type="text" placeholder="주제(선택)">
+        <input id="chName" type="text" placeholder="이름(선택)">
+      </div>
+      <button type="submit">추가</button>
+      <span id="addStatus" class="status"></span>
+    </form>
+    <p class="hint">이 브라우저에만 저장돼요(localStorage). 계정 없이 이 기기에서만 보입니다.</p>
+  </details>
+
+  <div id="my"></div>       <!-- 내가 추가한 채널 -->
+  <div id="preset"></div>   <!-- 추천 채널 (data.json) -->
+
   <script src="app.js"></script>
 </body>
 </html>
