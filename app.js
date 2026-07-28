@@ -1,4 +1,8 @@
-// app.js — 추천 채널(data.json) + 내가 추가한 채널(localStorage)을 합쳐 화면을 그린다.
+// app.js — 내가 추가한 채널(localStorage)의 최신 영상을 그린다.
+//
+// 2026-07-28: 추천 채널(data.json) 렌더를 제거했다. 지금은 화면이 "내 채널" 하나뿐이다.
+//  수집기(collect.py)와 data.json은 저장소에 그대로 보관돼 있으니 되살리려면
+//  renderPresets를 다시 붙이고 collect.yml의 cron을 켜면 된다.
 //
 // 내 채널 데이터는 내 Cloudflare Worker가 가져다준다.
 //  브라우저가 유튜브 RSS를 직접 fetch하면 CORS에 막히므로 중간 릴레이가 필요한데,
@@ -76,24 +80,12 @@ function groupLabel(text) {
   return p;
 }
 
-// ── 추천 채널: data.json (서버가 3시간마다 미리 만들어둔 것) ──
-function renderPresets() {
-  const box = document.getElementById("preset");
-  if (!box) return; // 화면 구조가 안 맞으면 조용히 넘어감(캐시 불일치 등 대비)
-  fetch("data.json")
-    .then((r) => {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
-    })
-    .then((data) => {
-      document.getElementById("updated").textContent =
-        "업데이트: " + data.updated + " (KST)";
-      box.replaceChildren(groupLabel("— 추천 채널 —"));
-      for (const s of data.sections) box.appendChild(sectionEl(s.topic, s.name, s.videos));
-    })
-    .catch((err) => {
-      document.getElementById("updated").textContent = "추천 채널 로드 실패: " + err;
-    });
+// ── 아직 채널이 없을 때 안내 (추천 채널을 없앤 뒤로 첫 화면이 비기 때문) ──
+function emptyStateEl() {
+  const p = document.createElement("p");
+  p.className = "hint";
+  p.textContent = "아직 추가한 채널이 없어요. 위에서 채널 링크나 @핸들을 넣어 추가해보세요.";
+  return p;
 }
 
 // ── 내 채널: localStorage 목록 → Worker로 최신 영상 (캐시 먼저 → 백그라운드 갱신) ──
@@ -103,7 +95,10 @@ function renderMyChannels() {
   const list = loadMyChannels();
   const cache = loadCache();
   box.replaceChildren();
-  if (list.length === 0) return;
+  if (list.length === 0) {
+    box.appendChild(emptyStateEl());
+    return;
+  }
 
   box.appendChild(groupLabel("— 내 채널 —"));
 
@@ -194,6 +189,5 @@ function wireForm() {
 }
 
 // ────────────────────────── 시작 ──────────────────────────
-renderPresets();
 renderMyChannels();
 wireForm();
