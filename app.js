@@ -1,19 +1,12 @@
 // app.js — 추천 채널(data.json) + 내가 추가한 채널(localStorage)을 합쳐 화면을 그린다.
 //
-// 왜 프록시가 필요한가:
-//  사용자가 추가한 채널의 최신 영상은 "지금 이 순간" 브라우저에서 가져와야 한다.
-//  그런데 유튜브 RSS를 브라우저에서 바로 fetch하면 CORS에 막힌다.
-//  → 공개 CORS 프록시가 RSS를 대신 받아다 준다. (언젠가 불안정하면 PROXY만 바꾸거나
-//    내 서버리스 함수로 승급하면 되고, 이 파일의 나머지 로직은 그대로 재사용된다.)
+// 내 채널 데이터는 내 Cloudflare Worker가 가져다준다.
+//  브라우저가 유튜브 RSS를 직접 fetch하면 CORS에 막히므로 중간 릴레이가 필요한데,
+//  예전엔 공개 무료 프록시를 썼다가 레이트 리밋으로 "3연속 실패"가 잦아 내 Worker로 바꿨다.
+//  Worker가 @핸들 해결과 XML 파싱까지 끝내주므로, 여기서는 JSON만 받아 그리면 된다.
+//  (코드: worker/rss-proxy.js)
 
-// 릴레이 후보들. 앞에서부터 시도해 처음 성공하는 걸 쓴다.
-// (공개 프록시는 종종 죽는다 — 실제로 개발 중 allorigins가 500을 뱉었다.
-//  하나가 죽어도 다음으로 넘어가게 여러 개를 둔다. 언젠가 자주 아프면 내 서버리스로 승급.)
-const PROXIES = [
-  (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-  (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-  (u) => "https://api.codetabs.com/v1/proxy/?quest=" + u,
-];
+const WORKER = "https://yt-rss.javer1155.workers.dev";
 const LIMIT = 3; // 채널당 보여줄 최신 영상 수
 const STORE_KEY = "myChannels"; // 내 채널 목록
 const CACHE_KEY = "channelCache"; // 채널별 최근 결과 캐시(재방문 시 즉시 렌더)
@@ -31,75 +24,15 @@ const saveMyChannels = (list) => localStorage.setItem(STORE_KEY, JSON.stringify(
 const loadCache = () => loadJSON(CACHE_KEY, {});
 const saveCache = (c) => localStorage.setItem(CACHE_KEY, JSON.stringify(c));
 
-// ────────────────────────── 프록시로 텍스트 가져오기 ──────────────────────────
-async function proxyText(url) {
-  let lastErr;
-  for (const make of PROXIES) {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 12000); // 12초 넘으면 다음 프록시로
-      const res = await fetch(make(url), { signal: ctrl.signal });
-      clearTimeout(timer);
-      if (!res.ok) {
-        lastErr = new Error("HTTP " + res.status);
-        continue;
-      }
-      const text = await res.text();
-      if (text) return text;
-      lastErr = new Error("빈 응답");
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw new Error("모든 프록시 실패 (" + (lastErr ? lastErr.message : "?") + ")");
-}
-
-// ── 입력(채널ID / 채널URL / @핸들) → channel_id(UC...) ──
-async function resolveChannelId(input) {
-  const raw = input.trim();
-  // 1) 이미 channel_id 형태
-  if (/^UC[\w-]{20,}$/.test(raw)) return raw;
-  // 2) URL 안에 /channel/UC... 가 들어있음
-  const inUrl = raw.match(/channel\/(UC[\w-]{20,})/);
-  if (inUrl) return inUrl[1];
-  // 3) @핸들 또는 커스텀 URL → 채널 페이지 HTML을 긁어 channelId 추출
-  let pageUrl = raw;
-  if (raw.startsWith("@")) pageUrl = "https://www.youtube.com/" + raw;
-  else if (!/^https?:\/\//.test(raw)) pageUrl = "https://www.youtube.com/@" + raw;
-  const html = await proxyText(pageUrl);
-  const hit =
-    html.match(/"channelId":"(UC[\w-]{20,})"/) ||
-    html.match(/channel\/(UC[\w-]{20,})/);
-  if (!hit) throw new Error("채널 ID를 못 찾았어 (링크를 확인해줘)");
-  return hit[1];
-}
-
-// ── channel_id → RSS XML 문서 ──
-async function fetchFeed(channelId) {
-  const rss = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
-  const text = await proxyText(rss);
-  const xml = new DOMParser().parseFromString(text, "application/xml");
-  if (xml.querySelector("parsererror")) throw new Error("RSS 파싱 실패");
-  return xml;
-}
-
-// ── RSS 문서 → 최신 영상 [{title, link, date}] ──
-function parseVideos(xml) {
-  return [...xml.getElementsByTagName("entry")].slice(0, LIMIT).map((e) => ({
-    title: e.getElementsByTagName("title")[0]?.textContent || "(제목 없음)",
-    link: e.getElementsByTagName("link")[0]?.getAttribute("href") || "#",
-    date: (e.getElementsByTagName("published")[0]?.textContent || "").slice(0, 10),
-  }));
-}
-
-// ── channel_id → 채널명 (RSS 루트의 title). 사용자가 이름을 안 적었을 때 자동 채움 ──
-async function fetchChannelName(channelId) {
-  try {
-    const xml = await fetchFeed(channelId);
-    return xml.querySelector("feed > title")?.textContent || null;
-  } catch {
-    return null;
-  }
+// ────────────────────────── Worker 호출 ──────────────────────────
+// ch: 채널ID / @핸들 / 채널URL 아무거나. Worker가 알아서 해석한다.
+// → { channelId, name, videos: [{title, link, date}] }
+async function fetchChannel(ch) {
+  const url = `${WORKER}/rss?ch=${encodeURIComponent(ch)}&limit=${LIMIT}`;
+  const res = await fetch(url);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+  return data;
 }
 
 // ────────────────────────── 렌더 (프리셋/내채널 공통) ──────────────────────────
@@ -143,7 +76,7 @@ function groupLabel(text) {
   return p;
 }
 
-// ── 추천 채널: data.json ──
+// ── 추천 채널: data.json (서버가 3시간마다 미리 만들어둔 것) ──
 function renderPresets() {
   const box = document.getElementById("preset");
   if (!box) return; // 화면 구조가 안 맞으면 조용히 넘어감(캐시 불일치 등 대비)
@@ -163,10 +96,10 @@ function renderPresets() {
     });
 }
 
-// ── 내 채널: localStorage + 프록시 fetch (캐시 먼저 → 백그라운드 갱신) ──
+// ── 내 채널: localStorage 목록 → Worker로 최신 영상 (캐시 먼저 → 백그라운드 갱신) ──
 function renderMyChannels() {
   const box = document.getElementById("my");
-  if (!box) return; // 화면 구조가 안 맞으면 조용히 넘어감
+  if (!box) return;
   const list = loadMyChannels();
   const cache = loadCache();
   box.replaceChildren();
@@ -180,7 +113,7 @@ function renderMyChannels() {
       renderMyChannels();
     };
 
-    // 캐시가 있으면 즉시, 없으면 "불러오는 중" 자리표시자
+    // 캐시가 있으면 즉시 그리고, 없으면 자리표시자
     const cached = cache[ch.channelId];
     let el = sectionEl(
       ch.topic,
@@ -190,14 +123,13 @@ function renderMyChannels() {
     );
     box.appendChild(el);
 
-    // 백그라운드로 최신 fetch → 성공하면 캐시 갱신 + 화면 교체
-    fetchFeed(ch.channelId)
-      .then((xml) => {
-        const videos = parseVideos(xml);
+    // 백그라운드로 최신 받아 교체
+    fetchChannel(ch.channelId)
+      .then((data) => {
         const c = loadCache();
-        c[ch.channelId] = { at: Date.now(), videos };
+        c[ch.channelId] = { at: Date.now(), videos: data.videos };
         saveCache(c);
-        const fresh = sectionEl(ch.topic, ch.name, videos, { onDelete });
+        const fresh = sectionEl(ch.topic, ch.name, data.videos, { onDelete });
         box.replaceChild(fresh, el);
         el = fresh;
       })
@@ -219,33 +151,37 @@ function renderMyChannels() {
 // ────────────────────────── 채널 추가 폼 ──────────────────────────
 function wireForm() {
   const form = document.getElementById("addForm");
+  if (!form) return;
   const status = document.getElementById("addStatus");
   const submitBtn = form.querySelector("button[type=submit]");
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const input = document.getElementById("chInput").value;
-    if (!input.trim()) return;
+    const input = document.getElementById("chInput").value.trim();
+    if (!input) return;
 
     submitBtn.disabled = true;
-    // 채널ID가 아니면 페이지를 긁어 ID를 찾느라 좀 걸린다 → 멈춘 줄 오해 안 하게 안내
-    const looksLikeId = /^UC[\w-]{20,}$/.test(input.trim()) || /channel\/UC/.test(input);
-    status.textContent = looksLikeId ? "불러오는 중…" : "채널 확인 중… (링크·핸들은 몇 초 걸려요)";
+    status.textContent = "확인 중…";
     try {
-      const channelId = await resolveChannelId(input);
+      // Worker가 채널 해석 + 최신 영상까지 한 번에 준다 (요청 1회)
+      const data = await fetchChannel(input);
+
       const list = loadMyChannels();
-      if (list.some((c) => c.channelId === channelId)) {
+      if (list.some((c) => c.channelId === data.channelId)) {
         status.textContent = "이미 추가된 채널이야.";
         return;
       }
       const topic = document.getElementById("chTopic").value.trim() || "내 채널";
-      const name =
-        document.getElementById("chName").value.trim() ||
-        (await fetchChannelName(channelId)) ||
-        channelId;
+      const name = document.getElementById("chName").value.trim() || data.name;
 
-      list.push({ topic, name, channelId });
+      list.push({ topic, name, channelId: data.channelId });
       saveMyChannels(list);
+
+      // 방금 받은 영상을 바로 캐시에 넣어 두면 렌더가 즉시 뜬다
+      const c = loadCache();
+      c[data.channelId] = { at: Date.now(), videos: data.videos };
+      saveCache(c);
+
       form.reset();
       status.textContent = `추가됨: ${name}`;
       renderMyChannels();
