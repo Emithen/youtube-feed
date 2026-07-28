@@ -1,5 +1,5 @@
 {
-  "updated": "2026-07-28 18:10",
+  "updated": "2026-07-28 20:08",
   "sections": [
     {
       "topic": "포챔스",
@@ -132,6 +132,11 @@
       "name": "전구냥",
       "videos": [
         {
+          "title": "흠... 지금 기원전인데....?",
+          "link": "https://www.youtube.com/watch?v=MEdPGffqiaY",
+          "date": "2026-07-28"
+        },
+        {
           "title": "정찰병 VS 거대 전투 로봇",
           "link": "https://www.youtube.com/shorts/QubuAapHeDE",
           "date": "2026-07-27"
@@ -140,11 +145,6 @@
           "title": "명장들의 조별과제",
           "link": "https://www.youtube.com/shorts/0ktngVwwQgY",
           "date": "2026-07-20"
-        },
-        {
-          "title": "코끼리가 깡패인 이유",
-          "link": "https://www.youtube.com/shorts/iVOxOm50EPU",
-          "date": "2026-07-16"
         }
       ]
     },
