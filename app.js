@@ -146,6 +146,7 @@ function groupLabel(text) {
 // ── 추천 채널: data.json ──
 function renderPresets() {
   const box = document.getElementById("preset");
+  if (!box) return; // 화면 구조가 안 맞으면 조용히 넘어감(캐시 불일치 등 대비)
   fetch("data.json")
     .then((r) => {
       if (!r.ok) throw new Error("HTTP " + r.status);
@@ -165,6 +166,7 @@ function renderPresets() {
 // ── 내 채널: localStorage + 프록시 fetch (캐시 먼저 → 백그라운드 갱신) ──
 function renderMyChannels() {
   const box = document.getElementById("my");
+  if (!box) return; // 화면 구조가 안 맞으면 조용히 넘어감
   const list = loadMyChannels();
   const cache = loadCache();
   box.replaceChildren();
