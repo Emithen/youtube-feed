@@ -1,5 +1,5 @@
 {
-  "updated": "2026-07-28 21:57",
+  "updated": "2026-07-28 16:41",
   "sections": [
     {
       "topic": "포챔스",
@@ -27,11 +27,6 @@
       "name": "즈랑",
       "videos": [
         {
-          "title": "켄타 켄타: 같이 나쁜 짓을 하자 (포켓몬 챔피언스)",
-          "link": "https://www.youtube.com/watch?v=7FAk-uC7eqc",
-          "date": "2026-07-28"
-        },
-        {
           "title": "고오스가 펀치 기술을 쓸 수 있는 이유 #포켓몬",
           "link": "https://www.youtube.com/shorts/xWFLeBF-Z_0",
           "date": "2026-07-28"
@@ -40,6 +35,11 @@
           "title": "흔들풍손 카드 일러스트의 숨은 디테일? #포켓몬",
           "link": "https://www.youtube.com/shorts/A-9oTNB752w",
           "date": "2026-07-26"
+        },
+        {
+          "title": "스스로 생각하고 행동하는 삼삼드래를 만났습니다. (트라이얼 챌린지)",
+          "link": "https://www.youtube.com/watch?v=UOziKLeAaUM",
+          "date": "2026-07-25"
         }
       ]
     },
@@ -69,11 +69,6 @@
       "name": "체스인사이드",
       "videos": [
         {
-          "title": "파비아노 카루아나, 캡틴 아메리카 시절",
-          "link": "https://www.youtube.com/watch?v=aeg0XHp6nKs",
-          "date": "2026-07-28"
-        },
-        {
           "title": "체스 레이팅 2889 시절 매그너스 칼슨의 경기력",
           "link": "https://www.youtube.com/watch?v=hxuPl58KwdU",
           "date": "2026-07-27"
@@ -82,6 +77,11 @@
           "title": "체스 짬에서 나오는 엔드게임 실력",
           "link": "https://www.youtube.com/watch?v=CgVpxATNJ-E",
           "date": "2026-07-23"
+        },
+        {
+          "title": "쉽게 회복되지 않는 체스 세계 챔피언의 자신감",
+          "link": "https://www.youtube.com/watch?v=q1fdEJcsu4U",
+          "date": "2026-07-22"
         }
       ]
     },
@@ -132,11 +132,6 @@
       "name": "전구냥",
       "videos": [
         {
-          "title": "흠... 지금 기원전인데....?",
-          "link": "https://www.youtube.com/watch?v=MEdPGffqiaY",
-          "date": "2026-07-28"
-        },
-        {
           "title": "정찰병 VS 거대 전투 로봇",
           "link": "https://www.youtube.com/shorts/QubuAapHeDE",
           "date": "2026-07-27"
@@ -145,6 +140,11 @@
           "title": "명장들의 조별과제",
           "link": "https://www.youtube.com/shorts/0ktngVwwQgY",
           "date": "2026-07-20"
+        },
+        {
+          "title": "코끼리가 깡패인 이유",
+          "link": "https://www.youtube.com/shorts/iVOxOm50EPU",
+          "date": "2026-07-16"
         }
       ]
     },
