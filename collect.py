@@ -1,10 +1,14 @@
-# collect.py — 배포용: channel_id 상수 + RSS만 읽어 index.html 생성
-# 실행: 터미널에서  python collect.py  →  같은 폴더에 index.html 생김
+# collect.py — 배포용: channel_id 상수 + RSS만 읽어 data.json 생성
+# 실행: 터미널에서  python collect.py  →  같은 폴더에 data.json 생김
 #
 # 하는 일:
 #  1) 채널마다 박아둔 channel_id(UC...)로 RSS를 연다  (핸들 긁기 없음)
 #  2) 최신 영상 제목 + 링크 + 날짜를 뽑는다
-#  3) 클릭 가능한 index.html 파일로 저장한다  (폰/브라우저로 열어봄)
+#  3) "무엇을 보여줄지"만 담은 data.json으로 저장한다  (HTML을 하나도 모른다)
+#
+# 계약(interface): 화면이 어떻게 생겼는지 이 파일은 전혀 모른다.
+#  data.json의 "모양"만 지키면, 화면(index.html + app.js)이 알아서 그린다.
+#  → 파이썬을 Go로 바꾸든 서버를 붙이든, 이 모양만 지키면 화면은 한 줄도 안 바뀐다.
 #
 # 왜 핸들 긁기를 뺐나:
 #  배포하면 수집 주체가 집 IP가 아니라 GitHub 데이터센터 IP다.
@@ -12,7 +16,7 @@
 #  channel_id는 채널마다 절대 안 바뀌므로, 한 번 뽑아 상수로 박고 RSS만 읽는다.
 #  RSS는 유튜브 공식 경로라 데이터센터에서도 안정적이다.
 
-import os
+import json
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -60,39 +64,27 @@ def latest_videos(channel_id, limit=3):
     return videos
 
 
-TITLE = "최신 영상 모음"
+def build_data(sections):
+    """sections = [(주제, 이름, [(title, link, date), ...]), ...] → data.json용 dict.
 
-
-def build_html(sections):
-    """sections = [(주제, 이름, [(title, link, date), ...]), ...] → HTML 문자열.
-
-    화면(HTML/CSS)은 template.html에 있고, 여기선 데이터만 채운다.
-    → 화면 고칠 때 파이썬 안 건드림. CSS 중괄호 이스케이프도 필요 없음.
+    이 함수는 HTML 태그를 하나도 만들지 않는다. "무엇을 보여줄지"의 모양만 만든다.
+    이 모양이 곧 화면과의 계약이다.  { updated, sections:[{topic,name,videos:[{title,link,date}]}] }
     """
-    rows = []
-    for topic, name, videos in sections:
-        rows.append(f"<h2>[{topic}] {name}</h2>")
-        for title, link, date in videos:
-            rows.append(
-                f'<p><a href="{link}" target="_blank" rel="noopener">{title}</a>'
-                f' <small>{date}</small></p>'
-            )
-
-    body = "\n".join(rows)
     now = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M")
-
-    # template.html을 collect.py와 같은 폴더에서 읽는다 (실행 위치와 무관하게).
-    template_path = os.path.join(os.path.dirname(__file__), "template.html")
-    with open(template_path, encoding="utf-8") as f:
-        template = f.read()
-
-    # 토큰 치환. str.format이 아니라 replace라 CSS의 { } 를 건드리지 않는다.
-    return (
-        template
-        .replace("{{TITLE}}", TITLE)
-        .replace("{{UPDATED}}", now)
-        .replace("{{BODY}}", body)
-    )
+    return {
+        "updated": now,
+        "sections": [
+            {
+                "topic": topic,
+                "name": name,
+                "videos": [
+                    {"title": title, "link": link, "date": date}
+                    for title, link, date in videos
+                ],
+            }
+            for topic, name, videos in sections
+        ],
+    }
 
 
 if __name__ == "__main__":
@@ -105,8 +97,9 @@ if __name__ == "__main__":
             videos = [(f"(수집 실패: {e})", "#", "")]
         sections.append((topic, name, videos))
 
-    html = build_html(sections)
-    # encoding·newline을 못박아 Mac/Windows 어디서 실행해도 결과 파일이 동일하게 나오게 한다.
-    with open("index.html", "w", encoding="utf-8", newline="\n") as f:
-        f.write(html)  # ← 이 파일을 GitHub Pages가 공개함
-    print("index.html 생성 완료")
+    data = build_data(sections)
+    # ensure_ascii=False: 한글을 \uXXXX로 깨지 않고 그대로 저장.
+    # newline="\n": Mac/Windows 어디서 실행해도 결과 파일이 동일하게 나오게.
+    with open("data.json", "w", encoding="utf-8", newline="\n") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    print("data.json 생성 완료")
