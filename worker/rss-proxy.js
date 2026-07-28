@@ -84,10 +84,26 @@ async function resolveChannelId(input) {
   else if (!/^https?:\/\//.test(input)) pageUrl = "https://www.youtube.com/@" + input;
 
   const html = await getText(pageUrl, 3600); // 핸들→ID는 안 바뀌니 1시간 캐시
-  const hit =
-    html.match(/"channelId":"(UC[\w-]{20,})"/) || html.match(/channel\/(UC[\w-]{20,})/);
-  if (!hit) throw new Error("채널 ID를 못 찾았어 (링크를 확인해줘)");
-  return hit[1];
+
+  // ⚠️ 채널 페이지는 2.4MB나 되고, 그 안엔 "추천 채널"의 ID도 잔뜩 들어있다.
+  //  - 정규식으로 전체를 훑으면 Worker CPU 한도(10ms)를 넘겨 죽는다 → indexOf로 위치만 찾는다.
+  //  - 먼저 나오는 "channelId"를 집으면 엉뚱한 추천 채널이 잡힌다(@mkbhd→The Studio 사고).
+  //    canonical 링크가 "이 페이지의 진짜 주인"이므로 그것부터 본다.
+  const id =
+    findAfter(html, 'rel="canonical" href="https://www.youtube.com/channel/') ||
+    findAfter(html, '"externalId":"') ||
+    findAfter(html, '"channelId":"'); // 최후 수단
+  if (!id) throw new Error("채널 ID를 못 찾았어 (링크를 확인해줘)");
+  return id;
+}
+
+// marker 바로 뒤에서 채널 ID를 꺼낸다. indexOf(네이티브 검색)라 큰 문서에서도 싸다.
+function findAfter(html, marker) {
+  const i = html.indexOf(marker);
+  if (i === -1) return null;
+  const start = i + marker.length;
+  const m = html.slice(start, start + 40).match(/^(UC[\w-]{20,})/);
+  return m ? m[1] : null;
 }
 
 // ────────────────────────── channel_id → 채널명 + 영상들 ──────────────────────────
