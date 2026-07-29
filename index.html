@@ -4,6 +4,26 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>최신 영상 모음</title>
+  <meta name="description" content="관심 채널의 새 영상을 한 곳에서 모아 봅니다.">
+
+  <!-- 링크 공유 시 뜨는 미리보기 카드 (카톡·슬랙·트위터 등).
+       크롤러는 상대경로를 못 읽는 곳이 많아 og:url·og:image는 절대주소로 쓴다.
+       og:image는 SVG를 지원 안 하는 곳이 많아 PNG를 쓴다 (원본: og-image.svg). -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="최신 영상 모음">
+  <meta property="og:title" content="최신 영상 모음">
+  <meta property="og:description" content="관심 채널의 새 영상을 한 곳에서 모아 봅니다.">
+  <meta property="og:url" content="https://emithen.github.io/youtube-feed/">
+  <meta property="og:image" content="https://emithen.github.io/youtube-feed/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="최신 영상 모음 — 관심 채널의 새 영상을 한 곳에서">
+  <meta property="og:locale" content="ko_KR">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <!-- 탭 아이콘 (파일 없이 인라인 SVG로 처리) -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%234a90e2'/><path d='M40 30 L72 50 L40 70 Z' fill='white'/></svg>">
+
   <style>
     :root { color-scheme: light dark; }        /* 폰 다크모드 자동 대응 */
     body {
