@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- 링크 공유 카드용 이미지의 원본. 수정 후 아래 명령으로 PNG를 다시 만든다:
+       rsvg-convert -w 1200 -h 630 og-image.svg -o og-image.png
+       (og:image는 SVG를 지원하지 않는 플랫폼이 많아 PNG로 변환해 쓴다) -->
+  <rect width="1200" height="630" fill="#0f1115"/>
+
+  <!-- 사이트의 h2 스타일(왼쪽 파란 막대)을 그대로 가져와 통일감 -->
+  <rect x="120" y="196" width="10" height="150" rx="5" fill="#4a90e2"/>
+
+  <text x="160" y="268"
+        font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif"
+        font-size="86" font-weight="700" fill="#f2f4f8">최신 영상 모음</text>
+
+  <text x="160" y="336"
+        font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif"
+        font-size="36" font-weight="400" fill="#9aa4b2">관심 채널의 새 영상을 한 곳에서</text>
+
+  <!-- 재생 아이콘 -->
+  <circle cx="1010" cy="270" r="72" fill="#4a90e2" opacity="0.16"/>
+  <path d="M990 236 L1044 270 L990 304 Z" fill="#4a90e2"/>
+
+  <line x1="120" y1="452" x2="1080" y2="452" stroke="#2a2f3a" stroke-width="2"/>
+
+  <text x="120" y="510"
+        font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif"
+        font-size="30" font-weight="500" fill="#4a90e2">emithen.github.io/youtube-feed</text>
+</svg>
