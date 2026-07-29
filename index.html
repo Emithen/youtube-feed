@@ -67,6 +67,14 @@
     .group {                                     /* "내 채널 / 추천 채널" 구분 라벨 */
       font-size: .8rem; color: #8a8a8a; letter-spacing: .04em; margin: 24px 0 0;
     }
+    span.new {                                   /* 24시간 이내 업로드 표시 */
+      display: inline-block; margin-right: 7px;
+      padding: 1px 6px; border-radius: 5px;
+      background: #4a90e2; color: #fff;
+      font-size: .68rem; font-weight: 700; letter-spacing: .04em;
+      vertical-align: 2px;
+    }
+
     /* ── 본 영상 표시 ── */
     button.seen {                                /* 봤음 토글. 색만이 아니라 기호(✓/○)로도 구분 */
       margin-left: 8px; padding: 0 4px;
@@ -113,6 +121,6 @@
 
   <!-- ?v= 는 캐시 버스팅: app.js를 고칠 때마다 숫자를 올린다.
        그래야 새 index.html이 캐시된 옛 app.js를 쓰다 깨지는 사고(버전 불일치)가 안 난다. -->
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>

@@ -16,6 +16,7 @@ const STORE_KEY = "myChannels"; // 내 채널 목록
 const CACHE_KEY = "channelCache"; // 채널별 최근 결과 캐시(재방문 시 즉시 렌더)
 const WATCHED_KEY = "watched"; // 본 영상: { 영상ID: 본 시각 }
 const WATCHED_MAX = 1000; // 무한히 쌓이지 않게 상한 (넘으면 오래된 것부터 버림)
+const NEW_WINDOW_MS = 24 * 60 * 60 * 1000; // 이 시간 안에 올라온 영상에 NEW 배지
 
 // ────────────────────────── localStorage 헬퍼 ──────────────────────────
 function loadJSON(key, fallback) {
@@ -57,6 +58,13 @@ function isWatched(v, w) {
   return Object.prototype.hasOwnProperty.call(w, videoKey(v));
 }
 
+// 24시간 이내 업로드인가. published(시각까지)가 정확하고,
+// 없으면(구버전 Worker가 만든 캐시) date(날짜만)로 대략 판단한다.
+function isNew(v) {
+  const t = Date.parse(v.published || v.date || "");
+  return Number.isFinite(t) && Date.now() - t < NEW_WINDOW_MS;
+}
+
 // ────────────────────────── Worker 호출 ──────────────────────────
 // ch: 채널ID / @핸들 / 채널URL 아무거나. Worker가 알아서 해석한다.
 // → { channelId, name, videos: [{title, link, date}] }
@@ -90,6 +98,15 @@ function sectionEl(topic, name, videos, opts = {}) {
     const p = document.createElement("p");
     const key = videoKey(v);
 
+    // NEW 배지는 줄 맨 앞에 둬야 목록을 훑을 때 눈에 띈다
+    let badge = null;
+    if (isNew(v)) {
+      badge = document.createElement("span");
+      badge.className = "new";
+      badge.textContent = "NEW";
+      p.appendChild(badge);
+    }
+
     const a = document.createElement("a");
     a.href = v.link;
     a.target = "_blank";
@@ -111,6 +128,8 @@ function sectionEl(topic, name, videos, opts = {}) {
 
       const paint = (on) => {
         p.classList.toggle("watched", on);
+        // 이미 본 영상이면 NEW를 감춘다 — 본 것이 우선. 안 그러면 본 영상이 계속 강조된다.
+        if (badge) badge.hidden = on;
         mark.textContent = on ? "✓" : "○";
         mark.title = on ? "본 영상 — 눌러서 해제" : "안 본 영상 — 눌러서 봤음 표시";
         mark.setAttribute("aria-label", mark.title);
