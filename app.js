@@ -11,9 +11,11 @@
 //  (코드: worker/rss-proxy.js)
 
 const WORKER = "https://yt-rss.javer1155.workers.dev";
-const LIMIT = 3; // 채널당 보여줄 최신 영상 수
+const LIMIT = 6; // 채널당 보여줄 최신 영상 수 (본 영상이 흐려지므로 3개는 너무 적었다)
 const STORE_KEY = "myChannels"; // 내 채널 목록
 const CACHE_KEY = "channelCache"; // 채널별 최근 결과 캐시(재방문 시 즉시 렌더)
+const WATCHED_KEY = "watched"; // 본 영상: { 영상ID: 본 시각 }
+const WATCHED_MAX = 1000; // 무한히 쌓이지 않게 상한 (넘으면 오래된 것부터 버림)
 
 // ────────────────────────── localStorage 헬퍼 ──────────────────────────
 function loadJSON(key, fallback) {
@@ -27,6 +29,33 @@ const loadMyChannels = () => loadJSON(STORE_KEY, []);
 const saveMyChannels = (list) => localStorage.setItem(STORE_KEY, JSON.stringify(list));
 const loadCache = () => loadJSON(CACHE_KEY, {});
 const saveCache = (c) => localStorage.setItem(CACHE_KEY, JSON.stringify(c));
+
+// ────────────────────────── 본 영상 기록 ──────────────────────────
+const loadWatched = () => loadJSON(WATCHED_KEY, {});
+
+function saveWatched(w) {
+  // 상한을 넘으면 오래 본 것부터 버린다 (기록이 무한정 커지지 않게)
+  const keys = Object.keys(w);
+  if (keys.length > WATCHED_MAX) {
+    keys
+      .sort((a, b) => w[a] - w[b])
+      .slice(0, keys.length - WATCHED_MAX)
+      .forEach((k) => delete w[k]);
+  }
+  localStorage.setItem(WATCHED_KEY, JSON.stringify(w));
+}
+
+// 영상 식별자. Worker가 주는 id를 쓰되, 아직 구버전 Worker라면 링크에서 뽑는다.
+// (watch?v=ID / shorts/ID / youtu.be/ID 모두 대응 → 배포 순서에 상관없이 동작)
+function videoKey(v) {
+  if (v.id) return v.id;
+  const m = String(v.link || "").match(/(?:v=|\/shorts\/|youtu\.be\/)([\w-]{6,})/);
+  return m ? m[1] : v.link;
+}
+
+function isWatched(v, w) {
+  return Object.prototype.hasOwnProperty.call(w, videoKey(v));
+}
 
 // ────────────────────────── Worker 호출 ──────────────────────────
 // ch: 채널ID / @핸들 / 채널URL 아무거나. Worker가 알아서 해석한다.
@@ -55,19 +84,63 @@ function sectionEl(topic, name, videos, opts = {}) {
   }
   wrap.appendChild(h2);
 
+  const watched = loadWatched();
+
   for (const v of videos) {
     const p = document.createElement("p");
+    const key = videoKey(v);
+
     const a = document.createElement("a");
     a.href = v.link;
     a.target = "_blank";
     a.rel = "noopener";
     a.textContent = v.title; // textContent라 제목 속 <, & 도 안전(XSS 방지)
     p.appendChild(a);
+
     if (v.date) {
       const s = document.createElement("small");
       s.textContent = " " + v.date;
       p.appendChild(s);
     }
+
+    // 링크가 없는 자리표시자("불러오는 중"·실패)에는 본 영상 표시를 붙이지 않는다
+    if (v.link && v.link !== "#") {
+      const mark = document.createElement("button");
+      mark.type = "button";
+      mark.className = "seen";
+
+      const paint = (on) => {
+        p.classList.toggle("watched", on);
+        mark.textContent = on ? "✓" : "○";
+        mark.title = on ? "본 영상 — 눌러서 해제" : "안 본 영상 — 눌러서 봤음 표시";
+        mark.setAttribute("aria-label", mark.title);
+        mark.setAttribute("aria-pressed", String(on));
+      };
+      paint(isWatched(v, watched));
+
+      // 눌러서 수동으로 켜고 끄기 (실수로 클릭했을 때 되돌리기)
+      mark.addEventListener("click", () => {
+        const w = loadWatched();
+        const on = Object.prototype.hasOwnProperty.call(w, key);
+        if (on) delete w[key];
+        else w[key] = Date.now();
+        saveWatched(w);
+        paint(!on);
+      });
+
+      // 영상을 클릭해 열면 자동으로 "봤음" 기록 (마찰 0)
+      a.addEventListener("click", () => {
+        const w = loadWatched();
+        if (!Object.prototype.hasOwnProperty.call(w, key)) {
+          w[key] = Date.now();
+          saveWatched(w);
+          paint(true);
+        }
+      });
+
+      p.appendChild(mark);
+    }
+
     wrap.appendChild(p);
   }
   return wrap;

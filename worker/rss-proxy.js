@@ -124,11 +124,19 @@ async function fetchFeed(channelId, limit) {
   const videos = xml
     .split("<entry>")
     .slice(1, limit + 1)
-    .map((chunk) => ({
-      title: decode((chunk.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || "(제목 없음)"),
-      link: (chunk.match(/<link rel="alternate" href="([^"]+)"/) || [])[1] || "#",
-      date: ((chunk.match(/<published>([^<]+)<\/published>/) || [])[1] || "").slice(0, 10),
-    }));
+    .map((chunk) => {
+      // published는 "2026-07-22T03:04:59+00:00" 같은 전체 시각.
+      //  date(날짜만)는 화면 표시용, published(시각까지)는 "24시간 이내" 계산용으로 둘 다 준다.
+      const published = (chunk.match(/<published>([^<]+)<\/published>/) || [])[1] || "";
+      return {
+        // id는 RSS의 <yt:videoId>. 영상을 식별하는 열쇠(예: "본 영상" 기록에 씀).
+        id: (chunk.match(/<yt:videoId>([^<]+)<\/yt:videoId>/) || [])[1] || "",
+        title: decode((chunk.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || "(제목 없음)"),
+        link: (chunk.match(/<link rel="alternate" href="([^"]+)"/) || [])[1] || "#",
+        date: published.slice(0, 10),
+        published,
+      };
+    });
 
   if (videos.length === 0) throw new Error("영상을 못 찾았어 (비공개/삭제 채널일 수 있음)");
   return { name, videos };
