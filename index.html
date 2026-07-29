@@ -67,6 +67,20 @@
     .group {                                     /* "내 채널 / 추천 채널" 구분 라벨 */
       font-size: .8rem; color: #8a8a8a; letter-spacing: .04em; margin: 24px 0 0;
     }
+    /* ── 본 영상 표시 ── */
+    button.seen {                                /* 봤음 토글. 색만이 아니라 기호(✓/○)로도 구분 */
+      margin-left: 8px; padding: 0 4px;
+      font-size: .85rem; line-height: 1;
+      background: transparent; border: 0; cursor: pointer;
+      color: #8a8a8a; opacity: .55;
+    }
+    button.seen:hover { opacity: 1; }
+    p.watched a {                                /* 본 영상은 흐리게 */
+      opacity: .45; font-weight: 500;
+    }
+    p.watched small { opacity: .6; }
+    p.watched button.seen { color: #4a90e2; opacity: .9; }
+
     button.del {                                 /* 채널 삭제 버튼 */
       margin-left: 10px; font-size: .75rem; font-weight: 500;
       color: #c0392b; background: transparent; border: 1px solid #c0392b55;
@@ -99,6 +113,6 @@
 
   <!-- ?v= 는 캐시 버스팅: app.js를 고칠 때마다 숫자를 올린다.
        그래야 새 index.html이 캐시된 옛 app.js를 쓰다 깨지는 사고(버전 불일치)가 안 난다. -->
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
