@@ -67,6 +67,34 @@
     .group {                                     /* "내 채널 / 추천 채널" 구분 라벨 */
       font-size: .8rem; color: #8a8a8a; letter-spacing: .04em; margin: 24px 0 0;
     }
+    /* ── 랜덤 추천 ── */
+    .pool {
+      border: 1px solid #8883; border-radius: 10px;
+      padding: 12px 14px; margin: 14px 0 22px;
+    }
+    .pool-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+    .pool .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .pool button {
+      padding: 8px 14px; border: 0; border-radius: 8px;
+      background: #4a90e2; color: #fff; font-weight: 600; font-size: 1rem; cursor: pointer;
+    }
+    .pool button.ghost { background: transparent; color: #8a8a8a; border: 1px solid #8886; }
+    .pool button:disabled { opacity: .5; cursor: default; }
+    .pool input, .pool textarea {
+      flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid #8886; border-radius: 8px;
+      font-size: 1rem; background: transparent; color: inherit; font-family: inherit;
+    }
+    .pool textarea { width: 100%; margin-bottom: 8px; }
+    .pool .sub { margin-top: 14px; }
+    .pool .sub summary { cursor: pointer; color: #8a8a8a; font-size: .9rem; }
+    .lbl { display: block; margin: 12px 0 5px; font-size: .85rem; color: #8a8a8a; }
+    #pick:not(:empty) {                          /* 뽑힌 영상 카드 */
+      margin: 12px 0 4px; padding: 12px 14px;
+      border-left: 4px solid #4a90e2; border-radius: 6px;
+      background: color-mix(in srgb, #4a90e2 9%, transparent);
+    }
+    #pick .meta { display: block; margin-top: 4px; color: #8a8a8a; font-size: .85rem; }
+
     span.new {                                   /* 24시간 이내 업로드 표시 */
       display: inline-block; margin-right: 7px;
       padding: 1px 6px; border-radius: 5px;
@@ -117,10 +145,42 @@
     <p class="hint">이 브라우저에만 저장돼요(localStorage). 계정 없이 이 기기에서만 보입니다.</p>
   </details>
 
+  <!-- 나중에 볼 풀: ① 유튜브 "나중에 볼"에서 뽑아온 ID를 가져오기(일회성)
+                     ② watchme 재생목록 동기화(앞으로 담는 곳)  → 합쳐서 랜덤 추천 -->
+  <section class="pool">
+    <div class="pool-head">
+      <strong>🎲 랜덤 추천</strong>
+      <span id="poolCount" class="status"></span>
+    </div>
+    <div class="row">
+      <button type="button" id="pickBtn">랜덤으로 하나</button>
+      <button type="button" id="repickBtn" class="ghost" hidden>다시 뽑기</button>
+    </div>
+    <div id="pick"></div>
+
+    <details class="sub">
+      <summary>영상 채워넣기 / 설정</summary>
+
+      <label class="lbl">watchme 재생목록 (앞으로 담는 곳)</label>
+      <div class="row">
+        <input id="plInput" type="text" placeholder="재생목록 ID 또는 URL (PL...)">
+        <button type="button" id="syncBtn">동기화</button>
+      </div>
+
+      <label class="lbl">"나중에 볼"에서 뽑은 ID 가져오기 (일회성)</label>
+      <textarea id="idsInput" rows="3" placeholder='["abc123","def456"] 또는 줄바꿈·쉼표로 구분'></textarea>
+      <div class="row">
+        <button type="button" id="importBtn">가져오기</button>
+        <button type="button" id="clearBtn" class="ghost">풀 비우기</button>
+      </div>
+      <p id="poolStatus" class="status"></p>
+    </details>
+  </section>
+
   <div id="my"></div>       <!-- 내가 추가한 채널 -->
 
   <!-- ?v= 는 캐시 버스팅: app.js를 고칠 때마다 숫자를 올린다.
        그래야 새 index.html이 캐시된 옛 app.js를 쓰다 깨지는 사고(버전 불일치)가 안 난다. -->
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>

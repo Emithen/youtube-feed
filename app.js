@@ -145,6 +145,7 @@ function sectionEl(topic, name, videos, opts = {}) {
         else w[key] = Date.now();
         saveWatched(w);
         paint(!on);
+        refreshPoolCount(); // 이 영상이 풀에도 있으면 "안 본 것" 수가 바뀐다
       });
 
       // 영상을 클릭해 열면 자동으로 "봤음" 기록 (마찰 0)
@@ -154,6 +155,7 @@ function sectionEl(topic, name, videos, opts = {}) {
           w[key] = Date.now();
           saveWatched(w);
           paint(true);
+          refreshPoolCount();
         }
       });
 
@@ -280,6 +282,196 @@ function wireForm() {
   });
 }
 
+// ══════════════════════════ 랜덤 추천 (나중에 볼 풀) ══════════════════════════
+// 유튜브의 "나중에 볼"(WL)은 API로 못 읽는다(2016년부터 차단). 그래서 풀을 두 곳에서 채운다:
+//  ① 일회성 가져오기 — WL 화면에서 뽑아온 영상 ID 목록을 붙여넣으면 Worker가 상세를 채워준다
+//  ② watchme 재생목록 동기화 — 앞으로 담는 곳. Data API로 전체를 읽어온다
+// 둘을 합친 풀에서 무작위 1개를 제시한다. 이미 본 영상은 후보에서 뺀다(watched 재사용).
+
+const POOL_KEY = "laterPool"; // { 영상ID: {id,title,link,date,published,channel,addedAt,source} }
+const PLAYLIST_KEY = "playlistId";
+const CHUNK = 50; // Worker의 /videos 한 번에 보낼 수 있는 최대 개수
+
+const loadPool = () => loadJSON(POOL_KEY, {});
+const savePool = (p) => localStorage.setItem(POOL_KEY, JSON.stringify(p));
+
+function poolStats() {
+  const pool = loadPool();
+  const watched = loadWatched();
+  const all = Object.keys(pool);
+  const left = all.filter((k) => !Object.prototype.hasOwnProperty.call(watched, k));
+  return { total: all.length, left: left.length, leftKeys: left };
+}
+
+function refreshPoolCount() {
+  const el = document.getElementById("poolCount");
+  if (!el) return;
+  const { total, left } = poolStats();
+  el.textContent = total === 0 ? "비어 있음" : `안 본 것 ${left}개 / 전체 ${total}개`;
+}
+
+// 풀에 합치기. 이미 있는 건 그대로 두고(담은 시각 유지) 새 것만 넣는다.
+function mergeIntoPool(videos, source) {
+  const pool = loadPool();
+  let added = 0;
+  for (const v of videos) {
+    if (!v.id) continue;
+    if (!pool[v.id]) {
+      pool[v.id] = { ...v, addedAt: Date.now(), source };
+      added++;
+    }
+  }
+  savePool(pool);
+  refreshPoolCount();
+  return added;
+}
+
+// ── 뽑기 ──
+function pickRandom() {
+  const box = document.getElementById("pick");
+  const status = document.getElementById("poolStatus");
+  const { total, left, leftKeys } = poolStats();
+  box.replaceChildren();
+
+  if (total === 0) {
+    status.textContent = "풀이 비어 있어. 아래 '영상 채워넣기'로 먼저 담아줘.";
+    return;
+  }
+  if (left === 0) {
+    status.textContent = "안 본 영상이 없어! 전부 봤네 🎉";
+    return;
+  }
+  status.textContent = "";
+
+  const key = leftKeys[Math.floor(Math.random() * leftKeys.length)];
+  const v = loadPool()[key];
+
+  const a = document.createElement("a");
+  a.href = v.link;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = v.title;
+  // 열어보면 본 것으로 기록 → 다음 뽑기 후보에서 자동으로 빠진다
+  a.addEventListener("click", () => {
+    const w = loadWatched();
+    if (!Object.prototype.hasOwnProperty.call(w, v.id)) {
+      w[v.id] = Date.now();
+      saveWatched(w);
+      refreshPoolCount();
+    }
+  });
+  box.appendChild(a);
+
+  const meta = document.createElement("small");
+  meta.className = "meta";
+  meta.textContent = [v.channel, v.date].filter(Boolean).join(" · ");
+  box.appendChild(meta);
+
+  document.getElementById("repickBtn").hidden = false;
+}
+
+// ── ① ID 목록 가져오기 (50개씩 나눠서) ──
+function parseIds(text) {
+  const t = text.trim();
+  if (!t) return [];
+  let arr;
+  try {
+    const j = JSON.parse(t); // ["a","b"] 형태 그대로 붙여넣어도 되게
+    arr = Array.isArray(j) ? j : [];
+  } catch {
+    arr = t.split(/[\s,]+/); // 줄바꿈·쉼표 구분도 허용
+  }
+  const seen = new Set();
+  return arr
+    .map((s) => String(s).trim())
+    .map((s) => (s.includes("v=") ? new URL(s).searchParams.get("v") : s)) // URL도 허용
+    .filter((s) => s && /^[\w-]{6,}$/.test(s) && !seen.has(s) && seen.add(s));
+}
+
+async function importIds() {
+  const status = document.getElementById("poolStatus");
+  const btn = document.getElementById("importBtn");
+  const ids = parseIds(document.getElementById("idsInput").value);
+  if (ids.length === 0) {
+    status.textContent = "가져올 ID가 없어.";
+    return;
+  }
+
+  btn.disabled = true;
+  let added = 0, missing = 0, done = 0;
+  try {
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const res = await fetch(`${WORKER}/videos?ids=${encodeURIComponent(chunk.join(","))}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+      added += mergeIntoPool(data.videos || [], "watchlater");
+      missing += (data.missing || []).length;
+      done += chunk.length;
+      status.textContent = `가져오는 중… ${done}/${ids.length}`;
+    }
+    status.textContent =
+      `가져오기 완료: ${added}개 추가` +
+      (missing ? ` (비공개·삭제 ${missing}개 제외)` : "") +
+      (ids.length - added - missing > 0 ? ` (이미 있던 것 ${ids.length - added - missing}개)` : "");
+    document.getElementById("idsInput").value = "";
+  } catch (e) {
+    status.textContent = "실패: " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── ② watchme 재생목록 동기화 ──
+async function syncPlaylist() {
+  const status = document.getElementById("poolStatus");
+  const btn = document.getElementById("syncBtn");
+  const input = document.getElementById("plInput").value.trim();
+  if (!input) {
+    status.textContent = "재생목록 ID나 URL을 넣어줘.";
+    return;
+  }
+
+  btn.disabled = true;
+  status.textContent = "재생목록 읽는 중…";
+  try {
+    const res = await fetch(`${WORKER}/playlist?id=${encodeURIComponent(input)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+    const added = mergeIntoPool(data.videos || [], "playlist");
+    localStorage.setItem(PLAYLIST_KEY, input); // 다음에 열면 자동으로 채워둠
+    status.textContent =
+      `동기화 완료: ${data.count}개 중 ${added}개 새로 추가` +
+      (data.skipped ? ` (비공개·삭제 ${data.skipped}개 제외)` : "");
+  } catch (e) {
+    status.textContent = "실패: " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function wirePool() {
+  const pick = document.getElementById("pickBtn");
+  if (!pick) return; // 화면 구조가 안 맞으면 조용히 스킵
+
+  pick.addEventListener("click", pickRandom);
+  document.getElementById("repickBtn").addEventListener("click", pickRandom);
+  document.getElementById("importBtn").addEventListener("click", importIds);
+  document.getElementById("syncBtn").addEventListener("click", syncPlaylist);
+  document.getElementById("clearBtn").addEventListener("click", () => {
+    if (!confirm("풀을 비울까? (본 영상 기록은 남습니다)")) return;
+    localStorage.removeItem(POOL_KEY);
+    document.getElementById("pick").replaceChildren();
+    document.getElementById("repickBtn").hidden = true;
+    document.getElementById("poolStatus").textContent = "풀을 비웠어.";
+    refreshPoolCount();
+  });
+
+  document.getElementById("plInput").value = localStorage.getItem(PLAYLIST_KEY) || "";
+  refreshPoolCount();
+}
+
 // ────────────────────────── 시작 ──────────────────────────
 renderMyChannels();
 wireForm();
+wirePool();
