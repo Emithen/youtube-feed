@@ -371,21 +371,16 @@ function pickRandom() {
 }
 
 // ── ① ID 목록 가져오기 (50개씩 나눠서) ──
+// 붙여넣기 형식을 가리지 않는다: JSON 배열, 줄바꿈, 쉼표, URL, 심지어 잘린 JSON까지.
+// 요령 — 유튜브 영상 ID는 **항상 11자**([A-Za-z0-9_-]). 그래서
+//  ① 단어문자·하이픈이 아닌 것(따옴표·대괄호·쉼표·줄바꿈·슬래시…)을 전부 구분자로 보고 쪼갠 뒤
+//  ② 길이가 정확히 11인 토큰만 남긴다.
+// 이렇게 하면 URL 속 "youtube"(7자)·"watch"(5자) 같은 조각은 자동으로 걸러진다.
 function parseIds(text) {
-  const t = text.trim();
-  if (!t) return [];
-  let arr;
-  try {
-    const j = JSON.parse(t); // ["a","b"] 형태 그대로 붙여넣어도 되게
-    arr = Array.isArray(j) ? j : [];
-  } catch {
-    arr = t.split(/[\s,]+/); // 줄바꿈·쉼표 구분도 허용
-  }
   const seen = new Set();
-  return arr
-    .map((s) => String(s).trim())
-    .map((s) => (s.includes("v=") ? new URL(s).searchParams.get("v") : s)) // URL도 허용
-    .filter((s) => s && /^[\w-]{6,}$/.test(s) && !seen.has(s) && seen.add(s));
+  return String(text || "")
+    .split(/[^\w-]+/)
+    .filter((t) => /^[\w-]{11}$/.test(t) && !seen.has(t) && seen.add(t));
 }
 
 async function importIds() {
