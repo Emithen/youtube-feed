@@ -38,7 +38,14 @@ export default {
     // 살아있는지 확인용
     if (url.pathname === "/") {
       return json(
-        { ok: true, usage: ["/rss?ch=@handle 또는 UC...", "/playlist?id=PL..."] },
+        {
+          ok: true,
+          usage: [
+            "/rss?ch=@handle 또는 UC...",
+            "/playlist?id=PL... (전체, Data API)",
+            "/videos?ids=a,b,c (최대 50개)",
+          ],
+        },
         200,
         cors
       );
@@ -57,14 +64,21 @@ export default {
       if (url.pathname === "/playlist") {
         const id = (url.searchParams.get("id") || "").trim();
         if (!id) return json({ error: "id 파라미터가 필요해" }, 400, cors);
-        if (!env || !env.YT_API_KEY) {
-          return json(
-            { error: "서버에 YT_API_KEY가 설정되지 않았어 (Cloudflare 대시보드 → Settings → Variables)" },
-            500,
-            corsHeaders(origin, "no-store")
-          );
-        }
-        const data = await fetchPlaylist(playlistId(id), env.YT_API_KEY);
+        const key = requireKey(env);
+        const data = await fetchPlaylist(playlistId(id), key);
+        return json(data, 200, cors);
+      }
+
+      // ID 목록 → 영상 상세. "나중에 볼"에서 뽑아온 ID를 앱으로 가져올 때 쓴다.
+      // 한 번에 50개까지(= Data API 한 번 호출 = 1 unit). 더 많으면 화면이 나눠서 부른다.
+      if (url.pathname === "/videos") {
+        const raw = (url.searchParams.get("ids") || "").trim();
+        if (!raw) return json({ error: "ids 파라미터가 필요해" }, 400, cors);
+        const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
+        if (ids.length > 50)
+          return json({ error: `한 번에 50개까지만 (지금 ${ids.length}개)` }, 400, cors);
+        const key = requireKey(env);
+        const data = await fetchVideos(ids, key);
         return json(data, 200, cors);
       }
 
@@ -82,6 +96,42 @@ export default {
 // RSS(playlist_id=...)는 최근 15개만 주므로, 랜덤 추천의 폭을 위해 Data API로 전부 가져온다.
 
 const MAX_PAGES = 20; // 50개 x 20 = 최대 1000개. Workers의 서브요청 한도(50)도 함께 지킨다.
+
+// 키가 없으면 여기서 멈춘다 (에러 메시지를 한 곳에서 관리)
+function requireKey(env) {
+  if (!env || !env.YT_API_KEY) {
+    throw new Error(
+      "서버에 YT_API_KEY가 설정되지 않았어 (Cloudflare → Settings → Variables and Secrets)"
+    );
+  }
+  return env.YT_API_KEY;
+}
+
+// videos.list로 상세를 받아온다. 50개당 1 unit이라 아주 싸다.
+async function fetchVideos(ids, key) {
+  const api =
+    "https://www.googleapis.com/youtube/v3/videos" +
+    `?part=snippet&maxResults=50&id=${encodeURIComponent(ids.join(","))}` +
+    `&key=${encodeURIComponent(key)}`;
+
+  const res = await fetch(api, { cf: { cacheTtl: 3600, cacheEverything: true } });
+  const body = await res.json();
+  if (!res.ok) throw new Error("YouTube API: " + (body?.error?.message || "HTTP " + res.status));
+
+  const videos = (body.items || []).map((it) => ({
+    id: it.id,
+    title: it.snippet?.title || "(제목 없음)",
+    link: `https://www.youtube.com/watch?v=${it.id}`,
+    date: (it.snippet?.publishedAt || "").slice(0, 10),
+    published: it.snippet?.publishedAt || "",
+    channel: it.snippet?.channelTitle || "",
+  }));
+
+  // 요청했지만 안 돌아온 ID = 비공개·삭제된 영상. 화면이 알 수 있게 알려준다.
+  const got = new Set(videos.map((v) => v.id));
+  const missing = ids.filter((x) => !got.has(x));
+  return { count: videos.length, missing, videos };
+}
 
 // 재생목록 URL을 붙여넣어도 되게 id만 뽑아낸다
 function playlistId(input) {
@@ -125,6 +175,8 @@ async function fetchPlaylist(id, key) {
         link: `https://www.youtube.com/watch?v=${vid}`,
         date: published.slice(0, 10),
         published,
+        // 풀에는 여러 채널이 섞이므로 영상마다 채널명을 함께 저장한다
+        channel: it.snippet?.videoOwnerChannelTitle || "",
       });
     }
 
