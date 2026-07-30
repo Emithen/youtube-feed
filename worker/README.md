@@ -9,12 +9,39 @@
 ## 계약(interface)
 
 ```
-GET /rss?ch=<채널ID | @핸들 | 채널URL>&limit=3
+GET /rss?ch=<채널ID | @핸들 | 채널URL>&limit=6
 → { "channelId": "UC...", "name": "채널명",
-    "videos": [ { "title": "...", "link": "...", "date": "YYYY-MM-DD" } ] }
+    "videos": [ { "id": "...", "title": "...", "link": "...",
+                  "date": "YYYY-MM-DD", "published": "ISO 시각" } ] }
+
+GET /playlist?id=<재생목록ID 또는 재생목록URL>
+→ { "playlistId": "PL...", "count": 87, "skipped": 2, "videos": [ 위와 같은 모양 ] }
 ```
 
-`data.json`의 sections 한 칸과 **같은 모양**이라, 프론트는 추천/내 채널을 똑같이 다룬다.
+`videos`의 모양이 두 엔드포인트에서 **동일**하므로 화면은 렌더 함수 하나로 처리한다.
+
+### `/playlist` 주의사항
+
+- 유튜브의 **"나중에 볼"(WL)은 읽을 수 없다.** 2016-09-12부터 API가 빈 목록을 주고 RSS는 404.
+  → 사용자가 만든 **전용 재생목록**을 대신 쓴다.
+- 재생목록은 **"일부 공개(unlisted)"** 이상이어야 한다. 완전 비공개는 OAuth가 필요해 지원 안 함.
+- RSS(`playlist_id=`)는 최근 15개만 주므로, 전체를 얻으려고 Data API를 쓴다.
+  50개씩 페이지네이션, 최대 20페이지(=1000개). Workers의 서브요청 한도(50)도 함께 지킨다.
+- 비공개·삭제된 영상은 볼 수 없으므로 후보에서 빼고 `skipped`로 개수만 알려준다.
+
+## 환경변수 (Secret)
+
+| 이름 | 용도 | 없으면 |
+|---|---|---|
+| `YT_API_KEY` | YouTube Data API v3 키. `/playlist`에서만 사용 | `/playlist`가 500 + 안내 메시지 (`/rss`는 영향 없음) |
+
+**등록 방법**: Worker → **Settings** → **Variables and Secrets** → Add →
+타입 **Secret**, 이름 `YT_API_KEY`, 값에 발급받은 키 → Save.
+Secret으로 넣으면 대시보드에서도 값이 다시 보이지 않고, **브라우저에는 절대 노출되지 않는다**
+(브라우저는 내 Worker만 부르고, 키는 서버에서만 쓰인다).
+
+키 발급: Google Cloud Console → 프로젝트 생성 → **YouTube Data API v3** 사용 설정 →
+사용자 인증 정보 → API 키 만들기. (할당량 하루 10,000, `playlistItems.list`는 50개당 1로 넉넉)
 
 ## 배포 방법 (대시보드, 5분 · CLI 불필요)
 

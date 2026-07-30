@@ -26,7 +26,8 @@ const UA =
   "(KHTML, like Gecko) Chrome/125.0 Safari/537.36";
 
 export default {
-  async fetch(request) {
+  // env: Cloudflare에 등록한 환경변수/Secret이 들어온다 (YT_API_KEY)
+  async fetch(request, env) {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin") || "";
     const cors = corsHeaders(origin);
@@ -36,24 +37,103 @@ export default {
 
     // 살아있는지 확인용
     if (url.pathname === "/") {
-      return json({ ok: true, usage: "/rss?ch=@handle 또는 UC..." }, 200, cors);
+      return json(
+        { ok: true, usage: ["/rss?ch=@handle 또는 UC...", "/playlist?id=PL..."] },
+        200,
+        cors
+      );
     }
-    if (url.pathname !== "/rss") return json({ error: "없는 경로" }, 404, cors);
-
-    const ch = (url.searchParams.get("ch") || "").trim();
-    if (!ch) return json({ error: "ch 파라미터가 필요해" }, 400, cors);
-    const limit = Math.min(Number(url.searchParams.get("limit")) || 3, 15);
 
     try {
-      const channelId = await resolveChannelId(ch);
-      const feed = await fetchFeed(channelId, limit);
-      return json({ channelId, ...feed }, 200, cors);
+      if (url.pathname === "/rss") {
+        const ch = (url.searchParams.get("ch") || "").trim();
+        if (!ch) return json({ error: "ch 파라미터가 필요해" }, 400, cors);
+        const limit = Math.min(Number(url.searchParams.get("limit")) || 3, 15);
+        const channelId = await resolveChannelId(ch);
+        const feed = await fetchFeed(channelId, limit);
+        return json({ channelId, ...feed }, 200, cors);
+      }
+
+      if (url.pathname === "/playlist") {
+        const id = (url.searchParams.get("id") || "").trim();
+        if (!id) return json({ error: "id 파라미터가 필요해" }, 400, cors);
+        if (!env || !env.YT_API_KEY) {
+          return json(
+            { error: "서버에 YT_API_KEY가 설정되지 않았어 (Cloudflare 대시보드 → Settings → Variables)" },
+            500,
+            corsHeaders(origin, "no-store")
+          );
+        }
+        const data = await fetchPlaylist(playlistId(id), env.YT_API_KEY);
+        return json(data, 200, cors);
+      }
+
+      return json({ error: "없는 경로" }, 404, cors);
     } catch (e) {
       // 실패는 캐시하지 않는다. 일시적 장애가 10분간 굳어버리면 안 되니까.
       return json({ error: String(e.message || e) }, 502, corsHeaders(origin, "no-store"));
     }
   },
 };
+
+// ────────────────────────── 재생목록 (YouTube Data API) ──────────────────────────
+// 유튜브의 "나중에 볼"(WL)은 2016-09-12부터 API로 읽을 수 없다(빈 목록). RSS도 404.
+// 그래서 사용자가 만든 **전용 재생목록**을 대신 읽는다. 재생목록은 "일부 공개"면 API 키로 읽힌다.
+// RSS(playlist_id=...)는 최근 15개만 주므로, 랜덤 추천의 폭을 위해 Data API로 전부 가져온다.
+
+const MAX_PAGES = 20; // 50개 x 20 = 최대 1000개. Workers의 서브요청 한도(50)도 함께 지킨다.
+
+// 재생목록 URL을 붙여넣어도 되게 id만 뽑아낸다
+function playlistId(input) {
+  const m = input.match(/[?&]list=([\w-]+)/);
+  return m ? m[1] : input;
+}
+
+async function fetchPlaylist(id, key) {
+  const videos = [];
+  let pageToken = "";
+  let skipped = 0;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const api =
+      "https://www.googleapis.com/youtube/v3/playlistItems" +
+      `?part=snippet,contentDetails&maxResults=50&playlistId=${encodeURIComponent(id)}` +
+      `&key=${encodeURIComponent(key)}` +
+      (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "");
+
+    const res = await fetch(api, { cf: { cacheTtl: 600, cacheEverything: true } });
+    const body = await res.json();
+    if (!res.ok) {
+      const reason = body?.error?.errors?.[0]?.reason || "";
+      const msg = body?.error?.message || "HTTP " + res.status;
+      if (reason === "playlistNotFound")
+        throw new Error("재생목록을 찾을 수 없어 (ID 확인, 공개 범위를 '일부 공개'로)");
+      throw new Error("YouTube API: " + msg);
+    }
+
+    for (const it of body.items || []) {
+      const vid = it.contentDetails?.videoId;
+      const published = it.contentDetails?.videoPublishedAt;
+      // 비공개·삭제된 영상은 볼 수 없으니 후보에서 뺀다 (videoPublishedAt이 없다)
+      if (!vid || !published) {
+        skipped++;
+        continue;
+      }
+      videos.push({
+        id: vid,
+        title: it.snippet?.title || "(제목 없음)",
+        link: `https://www.youtube.com/watch?v=${vid}`,
+        date: published.slice(0, 10),
+        published,
+      });
+    }
+
+    pageToken = body.nextPageToken || "";
+    if (!pageToken) break;
+  }
+
+  return { playlistId: id, count: videos.length, skipped, videos };
+}
 
 // ────────────────────────── CORS ──────────────────────────
 function corsHeaders(origin, cache = "public, max-age=600") {
