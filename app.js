@@ -418,11 +418,17 @@ async function importIds() {
 }
 
 // ── ② watchme 재생목록 동기화 ──
+// URL을 붙여넣으면 list= 값만 꺼낸다. 순수 ID면 그대로 쓴다.
+function normalizePlaylistId(s) {
+  const m = String(s).match(/[?&]list=([\w-]+)/);
+  return (m ? m[1] : String(s)).trim();
+}
+
 async function syncPlaylist() {
   const status = document.getElementById("poolStatus");
   const btn = document.getElementById("syncBtn");
-  const input = document.getElementById("plInput").value.trim();
-  if (!input) {
+  const id = normalizePlaylistId(document.getElementById("plInput").value);
+  if (!id) {
     status.textContent = "재생목록 ID나 URL을 넣어줘.";
     return;
   }
@@ -430,16 +436,26 @@ async function syncPlaylist() {
   btn.disabled = true;
   status.textContent = "재생목록 읽는 중…";
   try {
-    const res = await fetch(`${WORKER}/playlist?id=${encodeURIComponent(input)}`);
+    const res = await fetch(`${WORKER}/playlist?id=${encodeURIComponent(id)}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
     const added = mergeIntoPool(data.videos || [], "playlist");
-    localStorage.setItem(PLAYLIST_KEY, input); // 다음에 열면 자동으로 채워둠
+    localStorage.setItem(PLAYLIST_KEY, id); // 정리된 ID로 저장 → 다음에 열면 자동으로 채워둠
+    document.getElementById("plInput").value = id;
     status.textContent =
       `동기화 완료: ${data.count}개 중 ${added}개 새로 추가` +
       (data.skipped ? ` (비공개·삭제 ${data.skipped}개 제외)` : "");
   } catch (e) {
-    status.textContent = "실패: " + e.message;
+    // ID가 잘려서 실패하는 일이 잦다(URL에서 드래그로 복사하면 일부만 잡힘).
+    // 그래서 실제로 쓴 ID와 길이를 같이 보여줘 스스로 알아채게 한다.
+    let hint = "";
+    if (/찾을 수 없|not ?found|404/i.test(e.message)) {
+      hint =
+        ` — 사용한 ID "${id}" (${id.length}자).` +
+        " 재생목록 ID는 보통 18자나 34자야. 짧으면 복사하다 잘린 거니 **URL을 통째로** 붙여넣어줘." +
+        " 길이가 맞다면 공개 범위를 '일부 공개'로 바꿔야 해(비공개는 읽을 수 없음).";
+    }
+    status.textContent = "실패: " + e.message + hint;
   } finally {
     btn.disabled = false;
   }
