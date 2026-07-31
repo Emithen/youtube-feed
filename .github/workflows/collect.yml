@@ -2,7 +2,10 @@
 # 2026-07-28: 추천 채널(data.json) 기능을 화면에서 뺐으므로 수집도 멈췄다.
 #  - cron: 껐다 (안 쓰는 데이터를 3시간마다 모을 이유가 없음)
 #  - collect.py 실행: 껐다
-# 되살리려면 아래 두 곳의 주석(#)만 풀면 된다. collect.py와 data.json은 저장소에 그대로 있다.
+# 2026-07-31: collect.py·data.json 파일 자체를 지웠다(작업 폴더 정리).
+#  되살리려면 아래 주석(#)을 푸는 것만으로는 안 되고, git 이력에서 파일부터 꺼내야 한다:
+#    git log --diff-filter=D --oneline -- collect.py   ← 지운 커밋 찾기
+#    git show <그 커밋>^:collect.py > collect.py
 
 name: publish
 

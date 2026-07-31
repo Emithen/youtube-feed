@@ -1,8 +1,8 @@
 // app.js — 내가 추가한 채널(localStorage)의 최신 영상을 그린다.
 //
-// 2026-07-28: 추천 채널(data.json) 렌더를 제거했다. 지금은 화면이 "내 채널" 하나뿐이다.
-//  수집기(collect.py)와 data.json은 저장소에 그대로 보관돼 있으니 되살리려면
-//  renderPresets를 다시 붙이고 collect.yml의 cron을 켜면 된다.
+// 2026-07-28: 추천 채널(data.json) 렌더를 제거했고, 2026-07-31에 파일(collect.py·data.json)도 지웠다.
+//  지금은 화면이 "내 채널" 하나뿐이다. 되살릴 일이 생기면 git 이력에서 꺼내온다:
+//  git show <삭제 직전 커밋>:collect.py > collect.py
 //
 // 내 채널 데이터는 내 Cloudflare Worker가 가져다준다.
 //  브라우저가 유튜브 RSS를 직접 fetch하면 CORS에 막히므로 중간 릴레이가 필요한데,

@@ -126,8 +126,8 @@
 </head>
 <body>
   <!-- 이 페이지는 "빈 껍데기"다.
-       사용자가 추가한 채널을 localStorage에 저장하고, app.js가 Worker로 최신 영상을 받아 그린다.
-       (추천 채널/data.json 경로는 2026-07-28에 화면에서 제거됨 — collect.py는 저장소에 보관 중) -->
+       사용자가 추가한 채널을 localStorage에 저장하고, src/app.js가 Worker로 최신 영상을 받아 그린다.
+       (추천 채널/data.json 경로는 2026-07-28에 화면에서 제거, 2026-07-31에 파일도 삭제 — git 이력에 남아 있다) -->
   <h1>최신 영상 모음</h1>
 
   <details class="controls" open>
@@ -180,7 +180,8 @@
   <div id="my"></div>       <!-- 내가 추가한 채널 -->
 
   <!-- ?v= 는 캐시 버스팅: app.js를 고칠 때마다 숫자를 올린다.
-       그래야 새 index.html이 캐시된 옛 app.js를 쓰다 깨지는 사고(버전 불일치)가 안 난다. -->
-  <script src="app.js?v=9"></script>
+       그래야 새 index.html이 캐시된 옛 app.js를 쓰다 깨지는 사고(버전 불일치)가 안 난다.
+       경로는 배포 후 URL과 그대로 이어진다(publish_dir이 저장소 루트라 src/도 통째로 올라간다). -->
+  <script src="src/app.js?v=10"></script>
 </body>
 </html>

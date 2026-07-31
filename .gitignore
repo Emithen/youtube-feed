@@ -6,8 +6,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# ⚠️ index.html은 여기서 무시하면 안 된다!
+# ⚠️ 사이트에 필요한 파일은 여기서 무시하면 안 된다!
 # 배포 워크플로가 publish_dir "." 를 gh-pages로 올릴 때 이 .gitignore를 그대로 따르기 때문에,
-# index.html을 무시하면 사이트에서 빠져 404가 난다. (2026-07-24 실제로 겪음)
-# main에 빌드 결과물을 안 섞고 싶으면, 나중에 collect.py 출력을 dist/ 폴더로 바꾸고
-# publish_dir을 dist로 지정하는 방식으로 분리하는 게 정석.
+# index.html이나 src/를 무시하면 사이트에서 빠져 404가 난다. (2026-07-24 index.html로 실제로 겪음)
+# 지금은 모든 파일이 손으로 쓴 원본이라 생성물이 섞일 일이 없다(2026-07-31 collect.py·data.json 삭제).
+# 나중에 빌드 단계가 생기면, 출력을 dist/로 보내고 publish_dir을 dist로 지정해 분리하는 게 정석.
