@@ -5,11 +5,17 @@
 //  그래서 남의 공개 프록시를 빌려 썼는데, 무료 공용이라 레이트 리밋·과부하로 자주 실패했다.
 //  → "내가 통제하는 릴레이"를 하나 둔다. (아키텍처 유형 L3 = 요청시 동적·무상태)
 //
-// 계약(interface):
+// 계약(interface) — 지금은 이 하나뿐이다:
 //  GET /rss?ch=<채널ID | @핸들 | 채널URL>&limit=3
 //  →  { "channelId": "UC...", "name": "채널명",
-//       "videos": [ { "title": "...", "link": "...", "date": "YYYY-MM-DD" } ] }
-//  data.json의 sections 한 칸과 "같은 모양"이라, 프론트는 추천/내 채널을 똑같이 다룬다.
+//       "videos": [ { "id": "...", "title": "...", "link": "...",
+//                     "date": "YYYY-MM-DD", "published": "ISO8601" } ] }
+//
+// 2026-07-31: /playlist·/videos(YouTube Data API)를 걷어냈다.
+//  구글 로그인이 붙으면서 그쪽은 **브라우저가 유튜브를 직접** 부른다(src/youtube.js).
+//  릴레이의 존재 이유였던 ①CORS ②키 숨기기가 OAuth 호출엔 둘 다 해당이 없기 때문.
+//  → 이제 이 Worker는 **API 키를 쓰지 않는다.** Cloudflare의 YT_API_KEY 시크릿도 지웠다.
+//  되살릴 일이 생기면 git 이력에서: git log --oneline -- worker/rss-proxy.js
 //
 // 상태(state) 없음: DB도 로그인도 없다. 받아서 가공해 돌려줄 뿐.
 
@@ -26,8 +32,7 @@ const UA =
   "(KHTML, like Gecko) Chrome/125.0 Safari/537.36";
 
 export default {
-  // env: Cloudflare에 등록한 환경변수/Secret이 들어온다 (YT_API_KEY)
-  async fetch(request, env) {
+  async fetch(request) {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin") || "";
     const cors = corsHeaders(origin);
@@ -37,18 +42,7 @@ export default {
 
     // 살아있는지 확인용
     if (url.pathname === "/") {
-      return json(
-        {
-          ok: true,
-          usage: [
-            "/rss?ch=@handle 또는 UC...",
-            "/playlist?id=PL... (전체, Data API)",
-            "/videos?ids=a,b,c (최대 50개)",
-          ],
-        },
-        200,
-        cors
-      );
+      return json({ ok: true, usage: ["/rss?ch=@handle 또는 UC..."] }, 200, cors);
     }
 
     try {
@@ -61,27 +55,6 @@ export default {
         return json({ channelId, ...feed }, 200, cors);
       }
 
-      if (url.pathname === "/playlist") {
-        const id = (url.searchParams.get("id") || "").trim();
-        if (!id) return json({ error: "id 파라미터가 필요해" }, 400, cors);
-        const key = requireKey(env);
-        const data = await fetchPlaylist(playlistId(id), key);
-        return json(data, 200, cors);
-      }
-
-      // ID 목록 → 영상 상세. "나중에 볼"에서 뽑아온 ID를 앱으로 가져올 때 쓴다.
-      // 한 번에 50개까지(= Data API 한 번 호출 = 1 unit). 더 많으면 화면이 나눠서 부른다.
-      if (url.pathname === "/videos") {
-        const raw = (url.searchParams.get("ids") || "").trim();
-        if (!raw) return json({ error: "ids 파라미터가 필요해" }, 400, cors);
-        const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
-        if (ids.length > 50)
-          return json({ error: `한 번에 50개까지만 (지금 ${ids.length}개)` }, 400, cors);
-        const key = requireKey(env);
-        const data = await fetchVideos(ids, key);
-        return json(data, 200, cors);
-      }
-
       return json({ error: "없는 경로" }, 404, cors);
     } catch (e) {
       // 실패는 캐시하지 않는다. 일시적 장애가 10분간 굳어버리면 안 되니까.
@@ -89,103 +62,6 @@ export default {
     }
   },
 };
-
-// ────────────────────────── 재생목록 (YouTube Data API) ──────────────────────────
-// 유튜브의 "나중에 볼"(WL)은 2016-09-12부터 API로 읽을 수 없다(빈 목록). RSS도 404.
-// 그래서 사용자가 만든 **전용 재생목록**을 대신 읽는다. 재생목록은 "일부 공개"면 API 키로 읽힌다.
-// RSS(playlist_id=...)는 최근 15개만 주므로, 랜덤 추천의 폭을 위해 Data API로 전부 가져온다.
-
-const MAX_PAGES = 20; // 50개 x 20 = 최대 1000개. Workers의 서브요청 한도(50)도 함께 지킨다.
-
-// 키가 없으면 여기서 멈춘다 (에러 메시지를 한 곳에서 관리)
-function requireKey(env) {
-  if (!env || !env.YT_API_KEY) {
-    throw new Error(
-      "서버에 YT_API_KEY가 설정되지 않았어 (Cloudflare → Settings → Variables and Secrets)"
-    );
-  }
-  return env.YT_API_KEY;
-}
-
-// videos.list로 상세를 받아온다. 50개당 1 unit이라 아주 싸다.
-async function fetchVideos(ids, key) {
-  const api =
-    "https://www.googleapis.com/youtube/v3/videos" +
-    `?part=snippet&maxResults=50&id=${encodeURIComponent(ids.join(","))}` +
-    `&key=${encodeURIComponent(key)}`;
-
-  const res = await fetch(api, { cf: { cacheTtl: 3600, cacheEverything: true } });
-  const body = await res.json();
-  if (!res.ok) throw new Error("YouTube API: " + (body?.error?.message || "HTTP " + res.status));
-
-  const videos = (body.items || []).map((it) => ({
-    id: it.id,
-    title: it.snippet?.title || "(제목 없음)",
-    link: `https://www.youtube.com/watch?v=${it.id}`,
-    date: (it.snippet?.publishedAt || "").slice(0, 10),
-    published: it.snippet?.publishedAt || "",
-    channel: it.snippet?.channelTitle || "",
-  }));
-
-  // 요청했지만 안 돌아온 ID = 비공개·삭제된 영상. 화면이 알 수 있게 알려준다.
-  const got = new Set(videos.map((v) => v.id));
-  const missing = ids.filter((x) => !got.has(x));
-  return { count: videos.length, missing, videos };
-}
-
-// 재생목록 URL을 붙여넣어도 되게 id만 뽑아낸다
-function playlistId(input) {
-  const m = input.match(/[?&]list=([\w-]+)/);
-  return m ? m[1] : input;
-}
-
-async function fetchPlaylist(id, key) {
-  const videos = [];
-  let pageToken = "";
-  let skipped = 0;
-
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const api =
-      "https://www.googleapis.com/youtube/v3/playlistItems" +
-      `?part=snippet,contentDetails&maxResults=50&playlistId=${encodeURIComponent(id)}` +
-      `&key=${encodeURIComponent(key)}` +
-      (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "");
-
-    const res = await fetch(api, { cf: { cacheTtl: 600, cacheEverything: true } });
-    const body = await res.json();
-    if (!res.ok) {
-      const reason = body?.error?.errors?.[0]?.reason || "";
-      const msg = body?.error?.message || "HTTP " + res.status;
-      if (reason === "playlistNotFound")
-        throw new Error("재생목록을 찾을 수 없어 (ID 확인, 공개 범위를 '일부 공개'로)");
-      throw new Error("YouTube API: " + msg);
-    }
-
-    for (const it of body.items || []) {
-      const vid = it.contentDetails?.videoId;
-      const published = it.contentDetails?.videoPublishedAt;
-      // 비공개·삭제된 영상은 볼 수 없으니 후보에서 뺀다 (videoPublishedAt이 없다)
-      if (!vid || !published) {
-        skipped++;
-        continue;
-      }
-      videos.push({
-        id: vid,
-        title: it.snippet?.title || "(제목 없음)",
-        link: `https://www.youtube.com/watch?v=${vid}`,
-        date: published.slice(0, 10),
-        published,
-        // 풀에는 여러 채널이 섞이므로 영상마다 채널명을 함께 저장한다
-        channel: it.snippet?.videoOwnerChannelTitle || "",
-      });
-    }
-
-    pageToken = body.nextPageToken || "";
-    if (!pageToken) break;
-  }
-
-  return { playlistId: id, count: videos.length, skipped, videos };
-}
 
 // ────────────────────────── CORS ──────────────────────────
 function corsHeaders(origin, cache = "public, max-age=600") {
