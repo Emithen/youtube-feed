@@ -13,12 +13,19 @@
 // 2026-07-31 모듈 분리 — 이 파일은 "화면"만 담당한다:
 //  worker.js  … Worker를 부르는 유일한 창구 (URL 조립·에러 규약·50개씩 쪼개기)
 //  storage.js … localStorage에 저장되는 모든 것 (키·읽기·쓰기)
+//  youtube.js … 구글 로그인(OAuth) + 유튜브 Data API 직접 호출 (2026-07-31 추가)
 //  app.js     … 이 파일. DOM을 만들고 이벤트를 붙인다. fetch도 localStorage도 직접 안 쓴다.
 
 // ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
 // (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 두 줄도 같이.)
-import { fetchChannel, fetchPlaylist, fetchVideosChunked } from "./worker.js?v=11";
-import * as store from "./storage.js?v=11";
+import * as worker from "./worker.js?v=12";
+import * as store from "./storage.js?v=12";
+import * as yt from "./youtube.js?v=12";
+
+// 재생목록·영상 조회는 **로그인했으면 유튜브를 직접** 부른다(쿼터가 내 것이고 비공개도 읽힌다).
+// 로그인 전에는 Worker의 API 키 경로로 떨어진다 — OAuth 경로가 폰에서 검증되면 이 폴백을 없앤다.
+// 두 모듈이 같은 모양을 돌려주기 때문에 이렇게 갈아끼우는 게 가능하다(계약의 값어치).
+const source = () => (yt.isSignedIn() ? yt : worker);
 
 const NEW_WINDOW_MS = 24 * 60 * 60 * 1000; // 이 시간 안에 올라온 영상에 NEW 배지
 
@@ -167,7 +174,7 @@ function renderMyChannels() {
     box.appendChild(el);
 
     // 백그라운드로 최신 받아 교체
-    fetchChannel(ch.channelId)
+    worker.fetchChannel(ch.channelId)
       .then((data) => {
         store.cacheChannel(ch.channelId, data.videos);
         const fresh = sectionEl(ch.topic, ch.name, data.videos, { onDelete });
@@ -205,7 +212,7 @@ function wireForm() {
     status.textContent = "확인 중…";
     try {
       // Worker가 채널 해석 + 최신 영상까지 한 번에 준다 (요청 1회)
-      const data = await fetchChannel(input);
+      const data = await worker.fetchChannel(input);
 
       const list = store.loadChannels();
       if (list.some((c) => c.channelId === data.channelId)) {
@@ -334,7 +341,7 @@ async function importIds() {
   let added = 0, missing = 0;
   try {
     // 50개씩 쪼개 부르는 건 worker.js가 안다. 여기선 묶음마다 무엇을 할지만 정한다.
-    await fetchVideosChunked(ids, (data, done) => {
+    await source().fetchVideosChunked(ids, (data, done) => {
       added += mergeIntoPool(data.videos || [], "watchlater");
       missing += (data.missing || []).length;
       status.textContent = `가져오는 중… ${done}/${ids.length}`;
@@ -370,7 +377,7 @@ async function syncPlaylist() {
   btn.disabled = true;
   status.textContent = "재생목록 읽는 중…";
   try {
-    const data = await fetchPlaylist(id);
+    const data = await source().fetchPlaylist(id);
     const added = mergeIntoPool(data.videos || [], "playlist");
     store.savePlaylistId(id); // 정리된 ID로 저장 → 다음에 열면 자동으로 채워둠
     document.getElementById("plInput").value = id;
@@ -415,7 +422,80 @@ function wirePool() {
   refreshPoolCount();
 }
 
+// ══════════════════════════ 구글 로그인 · 구독 가져오기 ══════════════════════════
+// 로그인은 "내 유튜브 데이터를 읽을 인가"를 받는 것이다. 화면 데이터를 서버에 올리는 것과는 무관하다
+// (그건 나중에 할 기기 동기화의 몫). 그래서 로그인 안 해도 앱은 지금까지처럼 전부 동작한다.
+
+function wireAuth() {
+  const btn = document.getElementById("authBtn");
+  if (!btn) return;
+  const status = document.getElementById("authStatus");
+  const subsBtn = document.getElementById("subsBtn");
+
+  // 로그인 상태가 바뀔 때마다 버튼 문구와 구독 버튼 노출을 맞춘다
+  yt.onAuthChange((on) => {
+    btn.textContent = on ? "로그아웃" : "구글 로그인";
+    subsBtn.hidden = !on;
+    if (on) status.textContent = "로그인됨 — 내 구독·재생목록을 직접 읽어요";
+  });
+
+  btn.addEventListener("click", async () => {
+    if (yt.isSignedIn()) {
+      yt.signOut();
+      status.textContent = "로그아웃했어.";
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = "구글 창을 여는 중…";
+    try {
+      status.textContent = (await yt.signIn()) ? "" : "로그인이 취소됐어.";
+    } catch (e) {
+      status.textContent = "실패: " + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  subsBtn.addEventListener("click", importSubscriptions);
+
+  // 이미 동의한 적 있으면 창 없이 조용히 받아온다. 실패해도 아무 말 안 한다(로그인은 선택이니까).
+  yt.signIn({ silent: true }).catch(() => {});
+}
+
+// 구독 채널 → 내 채널 목록. 이미 있는 건 건드리지 않는다(주제·이름을 손봤을 수 있으니).
+async function importSubscriptions() {
+  const btn = document.getElementById("subsBtn");
+  const status = document.getElementById("subsStatus");
+  btn.disabled = true;
+  status.textContent = "구독 목록 읽는 중…";
+  try {
+    const subs = await yt.fetchSubscriptions((got, total) => {
+      status.textContent = `구독 목록 읽는 중… ${got}${total ? "/" + total : ""}`;
+    });
+    const list = store.loadChannels();
+    const have = new Set(list.map((c) => c.channelId));
+    let added = 0;
+    for (const s of subs) {
+      if (have.has(s.channelId)) continue;
+      list.push({ topic: "구독", name: s.name, channelId: s.channelId });
+      have.add(s.channelId);
+      added++;
+    }
+    store.saveChannels(list);
+    // 빠진 이유를 셈해서 알려준다 (조용히 사라지면 왜 개수가 다른지 알 수 없다)
+    status.textContent =
+      `구독 ${subs.length}개 중 ${added}개 추가` +
+      (subs.length - added > 0 ? ` (이미 있던 것 ${subs.length - added}개)` : "");
+    renderMyChannels();
+  } catch (e) {
+    status.textContent = e.needsAuth ? "로그인이 필요해." : "실패: " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // ────────────────────────── 시작 ──────────────────────────
 renderMyChannels();
 wireForm();
 wirePool();
+wireAuth();
