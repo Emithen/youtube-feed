@@ -130,8 +130,21 @@
        (추천 채널/data.json 경로는 2026-07-28에 화면에서 제거, 2026-07-31에 파일도 삭제 — git 이력에 남아 있다) -->
   <h1>최신 영상 모음</h1>
 
+  <!-- 구글 로그인: 내 유튜브 구독·재생목록을 직접 읽기 위한 인가(youtube.readonly).
+       ⛔ "나중에 볼"(WL)은 로그인해도 못 읽는다(2016년부터 차단) → watchme 우회는 그대로. -->
+  <div class="row">
+    <button type="button" id="authBtn">구글 로그인</button>
+    <span id="authStatus" class="status"></span>
+  </div>
+
   <details class="controls" open>
     <summary>＋ 내 채널 추가</summary>
+
+    <div class="row">
+      <button type="button" id="subsBtn" hidden>구독 채널 전부 가져오기</button>
+      <span id="subsStatus" class="status"></span>
+    </div>
+
     <form id="addForm">
       <input id="chInput" type="text"
              placeholder="채널 링크 / @핸들 / 채널ID(UC…)" required>
@@ -183,7 +196,9 @@
        그래야 새 index.html이 캐시된 옛 app.js를 쓰다 깨지는 사고(버전 불일치)가 안 난다.
        경로는 배포 후 URL과 그대로 이어진다(publish_dir이 저장소 루트라 src/도 통째로 올라간다).
        ⚠️ type="module" 이후로는 여기의 ?v= 가 app.js에만 붙는다.
-          worker.js·storage.js는 app.js 안의 import 경로에 붙은 ?v= 로 갈린다 → 올릴 땐 셋 다. -->
-  <script type="module" src="src/app.js?v=11"></script>
+          worker.js·storage.js·youtube.js는 app.js 안의 import 경로에 붙은 ?v= 로 갈린다
+          → 올릴 땐 여기 1곳 + import 3곳을 함께. -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script type="module" src="src/app.js?v=12"></script>
 </body>
 </html>
