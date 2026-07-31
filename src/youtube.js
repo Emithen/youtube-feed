@@ -16,7 +16,8 @@
 // ⚠️ 여기에 Google Cloud Console에서 만든 OAuth 클라이언트 ID를 붙여넣는다.
 //  클라이언트 "시크릿"은 쓰지 않는다. 클라이언트 ID는 비밀이 아니라서 공개 저장소에 있어도 된다
 //  (승인된 JavaScript 원본으로 도메인이 제한되기 때문).
-export const CLIENT_ID = "";
+export const CLIENT_ID =
+  "60100393090-r2g4ml40ov9tkmjh2en99v1q3fasgafb.apps.googleusercontent.com";
 
 // 읽기 전용 하나로 구독·재생목록·영상 조회가 전부 커버된다. 쓰기가 필요해지면 그때 넓힌다.
 const SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
