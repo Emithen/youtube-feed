@@ -18,14 +18,16 @@
 
 // ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
 // (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 두 줄도 같이.)
-import * as worker from "./worker.js?v=12";
-import * as store from "./storage.js?v=12";
-import * as yt from "./youtube.js?v=12";
+import * as worker from "./worker.js?v=13";
+import * as store from "./storage.js?v=13";
+import * as yt from "./youtube.js?v=13";
 
-// 재생목록·영상 조회는 **로그인했으면 유튜브를 직접** 부른다(쿼터가 내 것이고 비공개도 읽힌다).
-// 로그인 전에는 Worker의 API 키 경로로 떨어진다 — OAuth 경로가 폰에서 검증되면 이 폴백을 없앤다.
-// 두 모듈이 같은 모양을 돌려주기 때문에 이렇게 갈아끼우는 게 가능하다(계약의 값어치).
-const source = () => (yt.isSignedIn() ? yt : worker);
+// 바깥과 닿는 곳이 둘로 갈린다:
+//  worker.js  … 채널 최신 영상(RSS). 로그인과 무관하게 늘 동작한다.
+//  youtube.js … 풀을 채우는 것(재생목록·영상 상세). **로그인이 필요하다.**
+// 2026-07-31: 풀 쪽 Worker 폴백(API 키 경로)을 걷어냈다. 쿼터가 내 것이 되고 비공개
+//  재생목록도 읽히는 대신, 로그인하지 않으면 풀을 채울 수 없다.
+//  단 **랜덤 뽑기는 로그인 없이도 된다** — 풀은 이미 localStorage에 있기 때문.
 
 const NEW_WINDOW_MS = 24 * 60 * 60 * 1000; // 이 시간 안에 올라온 영상에 NEW 배지
 
@@ -328,9 +330,17 @@ function parseIds(text) {
     .filter((t) => /^[\w-]{11}$/.test(t) && !seen.has(t) && seen.add(t));
 }
 
+// 풀을 채우려면 로그인이 필요하다. 눌러본 뒤 실패하게 두지 말고 먼저 알려준다.
+function needsLogin(status) {
+  if (yt.isSignedIn()) return false;
+  status.textContent = "로그인이 필요해 — 맨 위 '구글 로그인'을 먼저 눌러줘.";
+  return true;
+}
+
 async function importIds() {
   const status = document.getElementById("poolStatus");
   const btn = document.getElementById("importBtn");
+  if (needsLogin(status)) return;
   const ids = parseIds(document.getElementById("idsInput").value);
   if (ids.length === 0) {
     status.textContent = "가져올 ID가 없어.";
@@ -340,8 +350,8 @@ async function importIds() {
   btn.disabled = true;
   let added = 0, missing = 0;
   try {
-    // 50개씩 쪼개 부르는 건 worker.js가 안다. 여기선 묶음마다 무엇을 할지만 정한다.
-    await source().fetchVideosChunked(ids, (data, done) => {
+    // 50개씩 쪼개 부르는 건 youtube.js가 안다. 여기선 묶음마다 무엇을 할지만 정한다.
+    await yt.fetchVideosChunked(ids, (data, done) => {
       added += mergeIntoPool(data.videos || [], "watchlater");
       missing += (data.missing || []).length;
       status.textContent = `가져오는 중… ${done}/${ids.length}`;
@@ -368,6 +378,7 @@ function normalizePlaylistId(s) {
 async function syncPlaylist() {
   const status = document.getElementById("poolStatus");
   const btn = document.getElementById("syncBtn");
+  if (needsLogin(status)) return;
   const id = normalizePlaylistId(document.getElementById("plInput").value);
   if (!id) {
     status.textContent = "재생목록 ID나 URL을 넣어줘.";
@@ -377,7 +388,7 @@ async function syncPlaylist() {
   btn.disabled = true;
   status.textContent = "재생목록 읽는 중…";
   try {
-    const data = await source().fetchPlaylist(id);
+    const data = await yt.fetchPlaylist(id);
     const added = mergeIntoPool(data.videos || [], "playlist");
     store.savePlaylistId(id); // 정리된 ID로 저장 → 다음에 열면 자동으로 채워둠
     document.getElementById("plInput").value = id;
