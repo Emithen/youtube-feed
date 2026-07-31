@@ -181,7 +181,9 @@
 
   <!-- ?v= 는 캐시 버스팅: app.js를 고칠 때마다 숫자를 올린다.
        그래야 새 index.html이 캐시된 옛 app.js를 쓰다 깨지는 사고(버전 불일치)가 안 난다.
-       경로는 배포 후 URL과 그대로 이어진다(publish_dir이 저장소 루트라 src/도 통째로 올라간다). -->
-  <script src="src/app.js?v=10"></script>
+       경로는 배포 후 URL과 그대로 이어진다(publish_dir이 저장소 루트라 src/도 통째로 올라간다).
+       ⚠️ type="module" 이후로는 여기의 ?v= 가 app.js에만 붙는다.
+          worker.js·storage.js는 app.js 안의 import 경로에 붙은 ?v= 로 갈린다 → 올릴 땐 셋 다. -->
+  <script type="module" src="src/app.js?v=11"></script>
 </body>
 </html>

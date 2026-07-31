@@ -9,42 +9,18 @@
 //  예전엔 공개 무료 프록시를 썼다가 레이트 리밋으로 "3연속 실패"가 잦아 내 Worker로 바꿨다.
 //  Worker가 @핸들 해결과 XML 파싱까지 끝내주므로, 여기서는 JSON만 받아 그리면 된다.
 //  (코드: worker/rss-proxy.js)
+//
+// 2026-07-31 모듈 분리 — 이 파일은 "화면"만 담당한다:
+//  worker.js  … Worker를 부르는 유일한 창구 (URL 조립·에러 규약·50개씩 쪼개기)
+//  storage.js … localStorage에 저장되는 모든 것 (키·읽기·쓰기)
+//  app.js     … 이 파일. DOM을 만들고 이벤트를 붙인다. fetch도 localStorage도 직접 안 쓴다.
 
-const WORKER = "https://yt-rss.javer1155.workers.dev";
-const LIMIT = 6; // 채널당 보여줄 최신 영상 수 (본 영상이 흐려지므로 3개는 너무 적었다)
-const STORE_KEY = "myChannels"; // 내 채널 목록
-const CACHE_KEY = "channelCache"; // 채널별 최근 결과 캐시(재방문 시 즉시 렌더)
-const WATCHED_KEY = "watched"; // 본 영상: { 영상ID: 본 시각 }
-const WATCHED_MAX = 1000; // 무한히 쌓이지 않게 상한 (넘으면 오래된 것부터 버림)
+// ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
+// (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 두 줄도 같이.)
+import { fetchChannel, fetchPlaylist, fetchVideosChunked } from "./worker.js?v=11";
+import * as store from "./storage.js?v=11";
+
 const NEW_WINDOW_MS = 24 * 60 * 60 * 1000; // 이 시간 안에 올라온 영상에 NEW 배지
-
-// ────────────────────────── localStorage 헬퍼 ──────────────────────────
-function loadJSON(key, fallback) {
-  try {
-    return JSON.parse(localStorage.getItem(key)) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-const loadMyChannels = () => loadJSON(STORE_KEY, []);
-const saveMyChannels = (list) => localStorage.setItem(STORE_KEY, JSON.stringify(list));
-const loadCache = () => loadJSON(CACHE_KEY, {});
-const saveCache = (c) => localStorage.setItem(CACHE_KEY, JSON.stringify(c));
-
-// ────────────────────────── 본 영상 기록 ──────────────────────────
-const loadWatched = () => loadJSON(WATCHED_KEY, {});
-
-function saveWatched(w) {
-  // 상한을 넘으면 오래 본 것부터 버린다 (기록이 무한정 커지지 않게)
-  const keys = Object.keys(w);
-  if (keys.length > WATCHED_MAX) {
-    keys
-      .sort((a, b) => w[a] - w[b])
-      .slice(0, keys.length - WATCHED_MAX)
-      .forEach((k) => delete w[k]);
-  }
-  localStorage.setItem(WATCHED_KEY, JSON.stringify(w));
-}
 
 // 영상 식별자. Worker가 주는 id를 쓰되, 아직 구버전 Worker라면 링크에서 뽑는다.
 // (watch?v=ID / shorts/ID / youtu.be/ID 모두 대응 → 배포 순서에 상관없이 동작)
@@ -54,26 +30,11 @@ function videoKey(v) {
   return m ? m[1] : v.link;
 }
 
-function isWatched(v, w) {
-  return Object.prototype.hasOwnProperty.call(w, videoKey(v));
-}
-
 // 24시간 이내 업로드인가. published(시각까지)가 정확하고,
 // 없으면(구버전 Worker가 만든 캐시) date(날짜만)로 대략 판단한다.
 function isNew(v) {
   const t = Date.parse(v.published || v.date || "");
   return Number.isFinite(t) && Date.now() - t < NEW_WINDOW_MS;
-}
-
-// ────────────────────────── Worker 호출 ──────────────────────────
-// ch: 채널ID / @핸들 / 채널URL 아무거나. Worker가 알아서 해석한다.
-// → { channelId, name, videos: [{title, link, date}] }
-async function fetchChannel(ch) {
-  const url = `${WORKER}/rss?ch=${encodeURIComponent(ch)}&limit=${LIMIT}`;
-  const res = await fetch(url);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
-  return data;
 }
 
 // ────────────────────────── 렌더 (프리셋/내채널 공통) ──────────────────────────
@@ -92,7 +53,8 @@ function sectionEl(topic, name, videos, opts = {}) {
   }
   wrap.appendChild(h2);
 
-  const watched = loadWatched();
+  // 목록 전체가 같은 기록을 쓰므로 한 번만 읽는다 (영상마다 읽으면 낭비)
+  const watched = store.loadWatched();
 
   for (const v of videos) {
     const p = document.createElement("p");
@@ -135,25 +97,17 @@ function sectionEl(topic, name, videos, opts = {}) {
         mark.setAttribute("aria-label", mark.title);
         mark.setAttribute("aria-pressed", String(on));
       };
-      paint(isWatched(v, watched));
+      paint(store.hasWatched(watched, key));
 
       // 눌러서 수동으로 켜고 끄기 (실수로 클릭했을 때 되돌리기)
       mark.addEventListener("click", () => {
-        const w = loadWatched();
-        const on = Object.prototype.hasOwnProperty.call(w, key);
-        if (on) delete w[key];
-        else w[key] = Date.now();
-        saveWatched(w);
-        paint(!on);
+        paint(store.toggleWatched(key));
         refreshPoolCount(); // 이 영상이 풀에도 있으면 "안 본 것" 수가 바뀐다
       });
 
       // 영상을 클릭해 열면 자동으로 "봤음" 기록 (마찰 0)
       a.addEventListener("click", () => {
-        const w = loadWatched();
-        if (!Object.prototype.hasOwnProperty.call(w, key)) {
-          w[key] = Date.now();
-          saveWatched(w);
+        if (store.markWatched(key)) {
           paint(true);
           refreshPoolCount();
         }
@@ -186,8 +140,8 @@ function emptyStateEl() {
 function renderMyChannels() {
   const box = document.getElementById("my");
   if (!box) return;
-  const list = loadMyChannels();
-  const cache = loadCache();
+  const list = store.loadChannels();
+  const cache = store.loadCache();
   box.replaceChildren();
   if (list.length === 0) {
     box.appendChild(emptyStateEl());
@@ -198,7 +152,7 @@ function renderMyChannels() {
 
   for (const ch of list) {
     const onDelete = () => {
-      saveMyChannels(loadMyChannels().filter((c) => c.channelId !== ch.channelId));
+      store.saveChannels(store.loadChannels().filter((c) => c.channelId !== ch.channelId));
       renderMyChannels();
     };
 
@@ -215,9 +169,7 @@ function renderMyChannels() {
     // 백그라운드로 최신 받아 교체
     fetchChannel(ch.channelId)
       .then((data) => {
-        const c = loadCache();
-        c[ch.channelId] = { at: Date.now(), videos: data.videos };
-        saveCache(c);
+        store.cacheChannel(ch.channelId, data.videos);
         const fresh = sectionEl(ch.topic, ch.name, data.videos, { onDelete });
         box.replaceChild(fresh, el);
         el = fresh;
@@ -255,7 +207,7 @@ function wireForm() {
       // Worker가 채널 해석 + 최신 영상까지 한 번에 준다 (요청 1회)
       const data = await fetchChannel(input);
 
-      const list = loadMyChannels();
+      const list = store.loadChannels();
       if (list.some((c) => c.channelId === data.channelId)) {
         status.textContent = "이미 추가된 채널이야.";
         return;
@@ -264,12 +216,10 @@ function wireForm() {
       const name = document.getElementById("chName").value.trim() || data.name;
 
       list.push({ topic, name, channelId: data.channelId });
-      saveMyChannels(list);
+      store.saveChannels(list);
 
       // 방금 받은 영상을 바로 캐시에 넣어 두면 렌더가 즉시 뜬다
-      const c = loadCache();
-      c[data.channelId] = { at: Date.now(), videos: data.videos };
-      saveCache(c);
+      store.cacheChannel(data.channelId, data.videos);
 
       form.reset();
       status.textContent = `추가됨: ${name}`;
@@ -288,18 +238,11 @@ function wireForm() {
 //  ② watchme 재생목록 동기화 — 앞으로 담는 곳. Data API로 전체를 읽어온다
 // 둘을 합친 풀에서 무작위 1개를 제시한다. 이미 본 영상은 후보에서 뺀다(watched 재사용).
 
-const POOL_KEY = "laterPool"; // { 영상ID: {id,title,link,date,published,channel,addedAt,source} }
-const PLAYLIST_KEY = "playlistId";
-const CHUNK = 50; // Worker의 /videos 한 번에 보낼 수 있는 최대 개수
-
-const loadPool = () => loadJSON(POOL_KEY, {});
-const savePool = (p) => localStorage.setItem(POOL_KEY, JSON.stringify(p));
-
 function poolStats() {
-  const pool = loadPool();
-  const watched = loadWatched();
+  const pool = store.loadPool();
+  const watched = store.loadWatched();
   const all = Object.keys(pool);
-  const left = all.filter((k) => !Object.prototype.hasOwnProperty.call(watched, k));
+  const left = all.filter((k) => !store.hasWatched(watched, k));
   return { total: all.length, left: left.length, leftKeys: left };
 }
 
@@ -312,7 +255,7 @@ function refreshPoolCount() {
 
 // 풀에 합치기. 이미 있는 건 그대로 두고(담은 시각 유지) 새 것만 넣는다.
 function mergeIntoPool(videos, source) {
-  const pool = loadPool();
+  const pool = store.loadPool();
   let added = 0;
   for (const v of videos) {
     if (!v.id) continue;
@@ -321,7 +264,7 @@ function mergeIntoPool(videos, source) {
       added++;
     }
   }
-  savePool(pool);
+  store.savePool(pool);
   refreshPoolCount();
   return added;
 }
@@ -344,7 +287,7 @@ function pickRandom() {
   status.textContent = "";
 
   const key = leftKeys[Math.floor(Math.random() * leftKeys.length)];
-  const v = loadPool()[key];
+  const v = store.loadPool()[key];
 
   const a = document.createElement("a");
   a.href = v.link;
@@ -353,12 +296,7 @@ function pickRandom() {
   a.textContent = v.title;
   // 열어보면 본 것으로 기록 → 다음 뽑기 후보에서 자동으로 빠진다
   a.addEventListener("click", () => {
-    const w = loadWatched();
-    if (!Object.prototype.hasOwnProperty.call(w, v.id)) {
-      w[v.id] = Date.now();
-      saveWatched(w);
-      refreshPoolCount();
-    }
+    if (store.markWatched(v.id)) refreshPoolCount();
   });
   box.appendChild(a);
 
@@ -393,18 +331,14 @@ async function importIds() {
   }
 
   btn.disabled = true;
-  let added = 0, missing = 0, done = 0;
+  let added = 0, missing = 0;
   try {
-    for (let i = 0; i < ids.length; i += CHUNK) {
-      const chunk = ids.slice(i, i + CHUNK);
-      const res = await fetch(`${WORKER}/videos?ids=${encodeURIComponent(chunk.join(","))}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+    // 50개씩 쪼개 부르는 건 worker.js가 안다. 여기선 묶음마다 무엇을 할지만 정한다.
+    await fetchVideosChunked(ids, (data, done) => {
       added += mergeIntoPool(data.videos || [], "watchlater");
       missing += (data.missing || []).length;
-      done += chunk.length;
       status.textContent = `가져오는 중… ${done}/${ids.length}`;
-    }
+    });
     status.textContent =
       `가져오기 완료: ${added}개 추가` +
       (missing ? ` (비공개·삭제 ${missing}개 제외)` : "") +
@@ -436,11 +370,9 @@ async function syncPlaylist() {
   btn.disabled = true;
   status.textContent = "재생목록 읽는 중…";
   try {
-    const res = await fetch(`${WORKER}/playlist?id=${encodeURIComponent(id)}`);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+    const data = await fetchPlaylist(id);
     const added = mergeIntoPool(data.videos || [], "playlist");
-    localStorage.setItem(PLAYLIST_KEY, id); // 정리된 ID로 저장 → 다음에 열면 자동으로 채워둠
+    store.savePlaylistId(id); // 정리된 ID로 저장 → 다음에 열면 자동으로 채워둠
     document.getElementById("plInput").value = id;
     status.textContent =
       `동기화 완료: ${data.count}개 중 ${added}개 새로 추가` +
@@ -448,11 +380,12 @@ async function syncPlaylist() {
   } catch (e) {
     // ID가 잘려서 실패하는 일이 잦다(URL에서 드래그로 복사하면 일부만 잡힘).
     // 그래서 실제로 쓴 ID와 길이를 같이 보여줘 스스로 알아채게 한다.
+    // "못 찾음" 판정은 worker.js가 해준다(상태코드·메시지를 여기서 다시 뜯지 않는다).
     let hint = "";
-    if (/찾을 수 없|not ?found|404/i.test(e.message)) {
+    if (e.notFound) {
       hint =
         ` — 사용한 ID "${id}" (${id.length}자).` +
-        " 재생목록 ID는 보통 18자나 34자야. 짧으면 복사하다 잘린 거니 **URL을 통째로** 붙여넣어줘." +
+        " 재생목록 ID는 보통 18자나 34자야. 짧으면 복사하다 잘린 거니 URL을 통째로 붙여넣어줘." +
         " 길이가 맞다면 공개 범위를 '일부 공개'로 바꿔야 해(비공개는 읽을 수 없음).";
     }
     status.textContent = "실패: " + e.message + hint;
@@ -471,14 +404,14 @@ function wirePool() {
   document.getElementById("syncBtn").addEventListener("click", syncPlaylist);
   document.getElementById("clearBtn").addEventListener("click", () => {
     if (!confirm("풀을 비울까? (본 영상 기록은 남습니다)")) return;
-    localStorage.removeItem(POOL_KEY);
+    store.clearPool();
     document.getElementById("pick").replaceChildren();
     document.getElementById("repickBtn").hidden = true;
     document.getElementById("poolStatus").textContent = "풀을 비웠어.";
     refreshPoolCount();
   });
 
-  document.getElementById("plInput").value = localStorage.getItem(PLAYLIST_KEY) || "";
+  document.getElementById("plInput").value = store.loadPlaylistId();
   refreshPoolCount();
 }
 
