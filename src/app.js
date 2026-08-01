@@ -18,9 +18,9 @@
 
 // ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
 // (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 두 줄도 같이.)
-import * as worker from "./worker.js?v=13";
-import * as store from "./storage.js?v=13";
-import * as yt from "./youtube.js?v=13";
+import * as worker from "./worker.js?v=14";
+import * as store from "./storage.js?v=14";
+import * as yt from "./youtube.js?v=14";
 
 // 바깥과 닿는 곳이 둘로 갈린다:
 //  worker.js  … 채널 최신 영상(RSS). 로그인과 무관하게 늘 동작한다.
@@ -505,8 +505,71 @@ async function importSubscriptions() {
   }
 }
 
+// ══════════════════════════ 백업 (내보내기 / 가져오기) ══════════════════════════
+// 무엇을 담고 어떻게 합칠지는 storage.js가 안다. 여기서는 **파일로 만들고 파일을 읽는 것**만 한다.
+// 그래서 나중에 저장 위치가 서버로 바뀌어도 이 파일에서 고칠 게 없다.
+
+function downloadJSON(obj, filename) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// 무엇이 얼마나 들었는지 세어 보여준다 — 파일을 열어보지 않고도 제대로 나왔는지 알 수 있게.
+function countsOf(data) {
+  const n = (v) => (Array.isArray(v) ? v.length : Object.keys(v || {}).length);
+  return `채널 ${n(data[store.KEYS.channels])} · 본 영상 ${n(data[store.KEYS.watched])} · 풀 ${n(data[store.KEYS.pool])}`;
+}
+
+function wireBackup() {
+  const outBtn = document.getElementById("exportBtn");
+  if (!outBtn) return;
+  const status = document.getElementById("backupStatus");
+  const file = document.getElementById("importFile");
+
+  outBtn.addEventListener("click", () => {
+    const payload = store.exportAll();
+    downloadJSON(payload, `youtube-feed-backup-${payload.exportedAt.slice(0, 10)}.json`);
+    status.textContent = "내보냈어 — " + countsOf(payload.data);
+  });
+
+  // 파일 선택창은 버튼처럼 생기지 않아서 감춰두고 버튼이 대신 연다
+  document.getElementById("importDataBtn").addEventListener("click", () => file.click());
+
+  file.addEventListener("change", async () => {
+    const f = file.files[0];
+    if (!f) return;
+    const replace = document.getElementById("importReplace").checked;
+    // 덮어쓰기는 되돌릴 수 없다. 합치기(기본)는 안전하므로 묻지 않는다.
+    if (replace && !confirm("덮어쓰기로 가져올까?\n지금 이 브라우저의 채널·본 영상·풀이 파일 내용으로 바뀝니다.")) {
+      file.value = "";
+      return;
+    }
+
+    status.textContent = "읽는 중…";
+    try {
+      const added = store.importAll(JSON.parse(await f.text()), { replace });
+      status.textContent =
+        (replace ? "덮어쓰기 완료 — " : "합치기 완료 — ") +
+        `채널 +${added.channels} · 본 영상 +${added.watched} · 풀 +${added.pool}`;
+      // 가져온 것이 화면에 바로 보이게 (안 그러면 새로고침해야 해서 성공했는지 알 수 없다)
+      renderMyChannels();
+      refreshPoolCount();
+      document.getElementById("plInput").value = store.loadPlaylistId();
+    } catch (e) {
+      status.textContent = "실패: " + e.message;
+    } finally {
+      file.value = ""; // 같은 파일을 다시 골라도 change가 뜨도록 비운다
+    }
+  });
+}
+
 // ────────────────────────── 시작 ──────────────────────────
 renderMyChannels();
 wireForm();
 wirePool();
 wireAuth();
+wireBackup();
