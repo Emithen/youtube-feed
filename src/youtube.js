@@ -19,8 +19,16 @@
 export const CLIENT_ID =
   "60100393090-r2g4ml40ov9tkmjh2en99v1q3fasgafb.apps.googleusercontent.com";
 
-// 읽기 전용 하나로 구독·재생목록·영상 조회가 전부 커버된다. 쓰기가 필요해지면 그때 넓힌다.
-const SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
+// 스코프 둘. **한 번의 로그인으로 둘 다 받는다** — 사용자에겐 여전히 버튼 하나다.
+//  ① youtube.readonly … 읽기 전용 하나로 구독·재생목록·영상 조회가 전부 커버된다
+//  ② drive.appdata    … **앱 전용 숨은 폴더에만** 접근한다(2026-08-04, 기기 동기화).
+//     사용자의 다른 드라이브 파일은 보이지도 않는다 — 드라이브 권한 중 가장 좁은 것.
+// ⚠️ 스코프를 늘리면 **동의 화면을 다시 받아야 한다.** 기존 사용자도 한 번은 로그인 버튼을
+//    눌러야 하고(silent는 실패한다), Cloud Console에서 **Drive API 활성화**도 필요하다.
+const SCOPE = [
+  "https://www.googleapis.com/auth/youtube.readonly",
+  "https://www.googleapis.com/auth/drive.appdata",
+].join(" ");
 const API = "https://www.googleapis.com/youtube/v3";
 const MAX_PAGES = 20; // 50개 × 20 = 최대 1000개 (Worker의 한도와 같게 맞춘다)
 export const CHUNK = 50; // videos.list가 한 번에 받는 최대 (= 1 unit)
@@ -86,28 +94,41 @@ export function signOut() {
 }
 
 // ────────────────────────── 호출 ──────────────────────────
-// 에러 모양은 worker.js와 맞춘다(err.notFound). 그래야 화면의 안내 코드가 그대로 쓰인다.
-async function get(path, params) {
+
+// 토큰을 쥐고 있는 곳은 이 파일 하나여야 한다. 그래서 **토큰을 넘겨주는 대신 창구를 빌려준다.**
+// drive.js가 이걸 쓴다 — 호스트가 달라(googleapis.com/drive) URL을 통째로 받는다.
+//  · 응답 해석은 하지 않는다: 유튜브는 늘 JSON이지만 Drive는 **파일 본문**도 돌려주기 때문.
+//  · 401(토큰 만료)만 여기서 처리한다. 모든 호출자가 똑같이 해야 하는 일이라서.
+export async function authedFetch(url, init = {}) {
   if (!isSignedIn()) {
     const err = new Error("로그인이 필요해");
     err.needsAuth = true;
     throw err;
   }
-  const res = await fetch(`${API}${path}?` + new URLSearchParams(params), {
-    headers: { Authorization: `Bearer ${token}` },
+  const res = await fetch(url, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, ...(init.headers || {}) },
   });
+  if (res.status === 401) {
+    // 토큰이 죽었다 → 다음 호출 전에 다시 받도록 비운다
+    token = null;
+    expiresAt = 0;
+    notify();
+    const err = new Error("로그인이 만료됐어. 다시 로그인해줘");
+    err.needsAuth = true;
+    throw err;
+  }
+  return res;
+}
+
+// 에러 모양은 worker.js와 맞춘다(err.notFound). 그래야 화면의 안내 코드가 그대로 쓰인다.
+async function get(path, params) {
+  const res = await authedFetch(`${API}${path}?` + new URLSearchParams(params));
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const reason = data?.error?.errors?.[0]?.reason || "";
     const err = new Error(data?.error?.message || "HTTP " + res.status);
     err.notFound = reason === "playlistNotFound" || res.status === 404;
-    if (res.status === 401) {
-      // 토큰이 죽었다 → 다음 호출 전에 다시 받도록 비운다
-      token = null;
-      expiresAt = 0;
-      notify();
-      err.needsAuth = true;
-    }
     throw err;
   }
   return data;

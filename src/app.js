@@ -17,10 +17,12 @@
 //  app.js     … 이 파일. DOM을 만들고 이벤트를 붙인다. fetch도 localStorage도 직접 안 쓴다.
 
 // ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
-// (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 두 줄도 같이.)
-import * as worker from "./worker.js?v=14";
-import * as store from "./storage.js?v=14";
-import * as yt from "./youtube.js?v=14";
+// (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 네 줄도 같이.)
+// ⚠️ drive.js도 youtube.js를 import한다 — **그쪽 ?v= 도 같은 값이어야** 모듈이 하나로 유지된다.
+import * as worker from "./worker.js?v=15";
+import * as store from "./storage.js?v=15";
+import * as yt from "./youtube.js?v=15";
+import * as drive from "./drive.js?v=15";
 
 // 바깥과 닿는 곳이 둘로 갈린다:
 //  worker.js  … 채널 최신 영상(RSS). 로그인과 무관하게 늘 동작한다.
@@ -524,6 +526,16 @@ function countsOf(data) {
   return `채널 ${n(data[store.KEYS.channels])} · 본 영상 ${n(data[store.KEYS.watched])} · 풀 ${n(data[store.KEYS.pool])}`;
 }
 
+// 가져온 것이 화면에 바로 보이게. 안 그러면 새로고침해야 해서 성공했는지 알 수 없다.
+// 파일·드라이브 양쪽에서 똑같이 필요해 함수로 뺐다.
+function showImported() {
+  renderMyChannels();
+  refreshPoolCount();
+  document.getElementById("plInput").value = store.loadPlaylistId();
+}
+
+const countsAdded = (a) => `채널 +${a.channels} · 본 영상 +${a.watched} · 풀 +${a.pool}`;
+
 function wireBackup() {
   const outBtn = document.getElementById("exportBtn");
   if (!outBtn) return;
@@ -553,12 +565,8 @@ function wireBackup() {
     try {
       const added = store.importAll(JSON.parse(await f.text()), { replace });
       status.textContent =
-        (replace ? "덮어쓰기 완료 — " : "합치기 완료 — ") +
-        `채널 +${added.channels} · 본 영상 +${added.watched} · 풀 +${added.pool}`;
-      // 가져온 것이 화면에 바로 보이게 (안 그러면 새로고침해야 해서 성공했는지 알 수 없다)
-      renderMyChannels();
-      refreshPoolCount();
-      document.getElementById("plInput").value = store.loadPlaylistId();
+        (replace ? "덮어쓰기 완료 — " : "합치기 완료 — ") + countsAdded(added);
+      showImported();
     } catch (e) {
       status.textContent = "실패: " + e.message;
     } finally {
@@ -567,9 +575,73 @@ function wireBackup() {
   });
 }
 
+// ══════════════════════ 드라이브 동기화 (국면 B) ══════════════════════
+// 백업 파일이 하던 일을 그대로 드라이브가 한다. **바뀌는 건 저장 위치뿐**이라
+// exportAll/importAll을 그대로 쓴다 — 여기서 새로 만든 규칙은 하나도 없다.
+//
+// ⭐ 올리기가 **덮어쓰기가 아니라 합치기**인 이유:
+//   파일 통째로 쓰는 방식이라 그냥 올리면 다른 기기가 그 사이에 담아둔 게 사라진다.
+//   그래서 "내려받아 합친 뒤 올린다". importAll의 규칙(기존 것이 이긴다 / 본 영상은
+//   이른 시각을 남긴다)이 합집합을 보장하므로 **어느 기기에서 눌러도 데이터가 줄지 않는다.**
+
+function wireDrive() {
+  const upBtn = document.getElementById("driveUpBtn");
+  if (!upBtn) return;
+  const downBtn = document.getElementById("driveDownBtn");
+  const status = document.getElementById("driveStatus");
+
+  // 동기화는 로그인 세션에 종속된다(토큰 1시간, refresh 없음) → 상태를 버튼에 그대로 비춘다.
+  const setEnabled = (on) => {
+    upBtn.disabled = downBtn.disabled = !on;
+    if (!on) status.textContent = "구글 로그인을 하면 켜져요.";
+  };
+  yt.onAuthChange(setEnabled);
+  setEnabled(yt.isSignedIn());
+
+  // 두 버튼이 실패 처리·버튼 잠금이 같아서 한 겹으로 감쌌다.
+  const run = async (label, fn) => {
+    upBtn.disabled = downBtn.disabled = true;
+    status.textContent = label;
+    try {
+      status.textContent = await fn();
+    } catch (e) {
+      status.textContent = e.needsAuth ? "로그인이 필요해 — 위에서 다시 로그인해줘" : "실패: " + e.message;
+    } finally {
+      setEnabled(yt.isSignedIn());
+    }
+  };
+
+  upBtn.addEventListener("click", () =>
+    run("드라이브와 맞추는 중…", async () => {
+      const remote = await drive.load();
+      let pulled = "";
+      if (remote) {
+        const added = store.importAll(remote.payload); // 합치기(덮어쓰기 아님)
+        showImported();
+        pulled = ` (드라이브에서 받아온 것: ${countsAdded(added)})`;
+      }
+      const payload = store.exportAll();
+      await drive.save(payload);
+      return `올렸어 — ${countsOf(payload.data)}${pulled}`;
+    })
+  );
+
+  downBtn.addEventListener("click", () =>
+    run("드라이브에서 읽는 중…", async () => {
+      const remote = await drive.load();
+      if (!remote) return "드라이브에 아직 없어. 먼저 ☁️ 올리기를 눌러줘.";
+      const added = store.importAll(remote.payload);
+      showImported();
+      const when = new Date(remote.modifiedTime).toLocaleString();
+      return `받았어 — ${countsAdded(added)} (드라이브 저장 시각: ${when})`;
+    })
+  );
+}
+
 // ────────────────────────── 시작 ──────────────────────────
 renderMyChannels();
 wireForm();
 wirePool();
 wireAuth();
 wireBackup();
+wireDrive();
