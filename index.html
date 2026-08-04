@@ -102,6 +102,8 @@
       background: #4a90e2; color: #fff; font-weight: 600; font-size: 1rem; cursor: pointer;
     }
     #backup button.ghost { background: transparent; color: #8a8a8a; border: 1px solid #8886; }
+    /* 드라이브 버튼은 로그아웃 상태에서 꺼진다 → 꺼진 게 보여야 한다 (.pool·#addForm과 같은 규칙) */
+    #backup button:disabled { opacity: .5; cursor: default; }
     #backup .chk {
       display: flex; align-items: center; gap: 6px;
       margin-top: 12px; font-size: .85rem; color: #8a8a8a;
@@ -205,7 +207,20 @@
   <!-- 백업: localStorage는 브라우저 데이터를 지우면 통째로 날아가고 계정이 없어 복구 수단이 없다.
        이 파일 한 장이 그 유일한 대비책이고, 그대로 기기 동기화(국면 B)의 이민 수단이 된다. -->
   <details class="controls" id="backup">
-    <summary>💾 백업 (내보내기 / 가져오기)</summary>
+    <summary>💾 백업 · ☁️ 드라이브 동기화</summary>
+
+    <label class="lbl">☁️ 구글 드라이브 (기기끼리 잇기)</label>
+    <div class="row">
+      <button type="button" id="driveUpBtn">올리기</button>
+      <button type="button" id="driveDownBtn" class="ghost">내려받기</button>
+    </div>
+    <p id="driveStatus" class="status"></p>
+    <p class="hint">
+      앱 전용 숨은 폴더에 저장돼요(내 드라이브 목록엔 안 보이고, 다른 앱도 못 봅니다).
+      <strong>올리기는 덮어쓰지 않고 합칩니다</strong> — 다른 기기에서 담아둔 것이 사라지지 않아요.
+    </p>
+
+    <label class="lbl">💾 파일로 (내보내기 / 가져오기)</label>
     <div class="row">
       <button type="button" id="exportBtn">내보내기</button>
       <button type="button" id="importDataBtn" class="ghost">가져오기</button>
@@ -216,7 +231,10 @@
       덮어쓰기 (기본은 합치기 — 기존 것을 지키고 없는 것만 채움)
     </label>
     <p id="backupStatus" class="status"></p>
-    <p class="hint">채널 · 본 영상 · 나중에 볼 풀 · 재생목록 ID를 파일 한 장으로. (채널 캐시는 다시 만들어지므로 제외)</p>
+    <p class="hint">
+      채널 · 본 영상 · 나중에 볼 풀 · 재생목록 ID를 파일 한 장으로. (채널 캐시는 다시 만들어지므로 제외)
+      드라이브를 쓰더라도 <strong>이 파일은 계속 뽑아두세요</strong> — 구글 계정이 잠기면 유일한 출구입니다.
+    </p>
   </details>
 
   <div id="my"></div>       <!-- 내가 추가한 채널 -->
@@ -225,9 +243,11 @@
        그래야 새 index.html이 캐시된 옛 app.js를 쓰다 깨지는 사고(버전 불일치)가 안 난다.
        경로는 배포 후 URL과 그대로 이어진다(publish_dir이 저장소 루트라 src/도 통째로 올라간다).
        ⚠️ type="module" 이후로는 여기의 ?v= 가 app.js에만 붙는다.
-          worker.js·storage.js·youtube.js는 app.js 안의 import 경로에 붙은 ?v= 로 갈린다
-          → 올릴 땐 여기 1곳 + import 3곳을 함께. -->
+          worker.js·storage.js·youtube.js·drive.js는 app.js 안의 import 경로에 붙은 ?v= 로 갈린다
+          → 올릴 땐 여기 1곳 + app.js의 import 4곳 + **drive.js가 youtube.js를 부르는 1곳**을 함께.
+          마지막 것을 빠뜨리면 youtube.js가 두 번 로드돼 토큰을 쥔 변수가 둘이 된다
+          (증상: 로그인했는데 드라이브에서 "로그인이 필요해"). -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script type="module" src="src/app.js?v=14"></script>
+  <script type="module" src="src/app.js?v=15"></script>
 </body>
 </html>
