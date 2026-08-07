@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- 앱 아이콘 원본 (모서리가 둥근 판, 바깥은 투명) — manifest의 purpose:"any"용.
+       index.html의 인라인 SVG 파비콘과 같은 도형을 5.12배로 키운 것이다(디자인 통일).
+
+       수정 후 아래 명령으로 PNG를 다시 만든다:
+         rsvg-convert -w 192 -h 192 icons/icon.svg -o icons/icon-192.png
+         rsvg-convert -w 512 -h 512 icons/icon.svg -o icons/icon-512.png
+
+       ⚠️ 이 파일은 안드로이드 maskable이나 iOS 홈 화면 아이콘으로 쓰면 안 된다.
+          모서리가 투명이라 OS가 자기 마스크를 씌울 때 귀퉁이가 비거나 검게 뜬다.
+          그쪽은 icon-square.svg(꽉 찬 사각형)를 쓴다. -->
+  <rect width="512" height="512" rx="112" fill="#4a90e2"/>
+  <path d="M205 154 L369 256 L205 358 Z" fill="#ffffff"/>
+</svg>

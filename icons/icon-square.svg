@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- 앱 아이콘 원본 (꽉 찬 불투명 사각형) — **OS가 자기 모양으로 잘라내는 자리**에 쓴다.
+        · 안드로이드 maskable  … 원/스퀴클/물방울 등 기기마다 다르게 깎는다
+        · iOS 홈 화면 아이콘   … 애플이 알아서 둥글린다. 투명이 있으면 검게 깔린다
+
+       그래서 ① 배경을 끝까지 채우고 ② 로고를 안전 영역(가운데 지름 80% 원) 안에 둔다.
+       삼각형이 icon.svg보다 작은 건 실수가 아니라 그 안전 영역 때문이다.
+
+       수정 후 아래 명령으로 PNG를 다시 만든다:
+         rsvg-convert -w 512 -h 512 icons/icon-square.svg -o icons/icon-maskable-512.png
+         rsvg-convert -w 180 -h 180 icons/icon-square.svg -o icons/apple-touch-icon.png -->
+  <rect width="512" height="512" fill="#4a90e2"/>
+  <path d="M184 160 L344 256 L184 352 Z" fill="#ffffff"/>
+</svg>
