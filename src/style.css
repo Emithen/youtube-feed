@@ -125,11 +125,10 @@
   }
   .pool button.ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--line); }
   .pool button:disabled { opacity: .5; cursor: default; }
-  .pool input, .pool textarea {                /* font-family는 reset이 맞춰준다 */
+  .pool input {                                /* font-family는 reset이 맞춰준다 */
     flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
     font-size: 1rem; background: transparent; color: inherit;
   }
-  .pool textarea { width: 100%; margin-bottom: 8px; }
   .pool .sub { margin-top: 14px; }
   .pool .sub summary { cursor: pointer; color: var(--text-muted); font-size: .9rem; }
   .lbl { display: block; margin: 12px 0 5px; font-size: .85rem; color: var(--text-muted); }
@@ -140,7 +139,7 @@
   }
   #pick .meta { display: block; margin-top: 4px; color: var(--text-muted); font-size: .85rem; }
 
-  /* ── 백업 · 드라이브 동기화 ── */
+  /* ── 드라이브 동기화 ── */
   #backup .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
   #backup button {
     padding: 8px 14px; border: 0; border-radius: 8px;
@@ -149,10 +148,6 @@
   #backup button.ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--line); }
   /* 드라이브 버튼은 로그아웃 상태에서 꺼진다 → 꺼진 게 보여야 한다 (.pool·#addForm과 같은 규칙) */
   #backup button:disabled { opacity: .5; cursor: default; }
-  #backup .chk {
-    display: flex; align-items: center; gap: 6px;
-    margin-top: 12px; font-size: .85rem; color: var(--text-muted);
-  }
 
   span.new {                                   /* 24시간 이내 업로드 표시 */
     display: inline-block; margin-right: 7px;
@@ -183,9 +178,30 @@
   }
 }
 
-/* ══════════════════ screens — 화면별 규칙 (아직 비어 있다) ══════════════════
-   갈래1 2.5단계(화면 분리 · 해시 라우팅)에서 채운다.
-   여기 규칙은 components보다 **무조건 뒤**라서, 화면별로 컴포넌트를 덮을 때
-   특정도를 올릴 필요가 없다. 그게 이 레이어를 미리 선언해둔 이유다. */
+/* ══════════════════ screens — 화면별 규칙 ══════════════════
+   갈래1 2.5단계(화면 분리 · 해시 라우팅). 여기 규칙은 components보다 **무조건 뒤**라서
+   화면별로 컴포넌트를 덮을 때 특정도를 올릴 필요가 없다.
+   실제로 아래 .tabs a 가 그 덕을 본다 — base의 a(파랑·1.05rem)를 셀렉터 한 개로 덮는다. */
 @layer screens {
+  /* 안 보이는 화면은 DOM에 그대로 남는다(요소를 지우지 않는 이유는 app.js 라우터 주석 참고).
+     [hidden]은 브라우저 기본 스타일이지만 display를 주는 규칙에 지므로 여기서 못박는다. */
+  .screen[hidden] { display: none; }
+  .screen > :first-child { margin-top: 0; }   /* 위 여백은 탭이 대신한다 */
+
+  /* ── 화면 탭 ── */
+  .tabs {
+    display: flex; gap: 2px;
+    margin: 14px 0 18px;
+    border-bottom: 1px solid var(--line-faint);
+  }
+  .tabs a {
+    flex: 1;                                   /* 폰에서 네 칸이 균등하게 — 누르기 쉽게 */
+    padding: 9px 4px; text-align: center;
+    font-size: .9rem; font-weight: 600;
+    color: var(--text-muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;                       /* 밑줄이 컨테이너 선 위에 겹치게 */
+  }
+  .tabs a:hover { text-decoration: none; }
+  .tabs a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
 }

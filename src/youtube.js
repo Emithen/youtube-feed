@@ -31,7 +31,6 @@ const SCOPE = [
 ].join(" ");
 const API = "https://www.googleapis.com/youtube/v3";
 const MAX_PAGES = 20; // 50개 × 20 = 최대 1000개 (Worker의 한도와 같게 맞춘다)
-export const CHUNK = 50; // videos.list가 한 번에 받는 최대 (= 1 unit)
 
 let token = null;
 let expiresAt = 0;
@@ -194,24 +193,6 @@ export async function fetchPlaylist(id) {
   return { playlistId: id, count: videos.length, skipped, videos };
 }
 
-// ── ID 묶음 → worker.js의 /videos와 같은 모양 ──
-export async function fetchVideos(ids) {
-  const data = await get("/videos", { part: "snippet", maxResults: "50", id: ids.join(",") });
-  const videos = (data.items || []).map((it) => ({
-    id: it.id,
-    title: it.snippet?.title || "(제목 없음)",
-    link: `https://www.youtube.com/watch?v=${it.id}`,
-    date: (it.snippet?.publishedAt || "").slice(0, 10),
-    published: it.snippet?.publishedAt || "",
-    channel: it.snippet?.channelTitle || "",
-  }));
-  const got = new Set(videos.map((v) => v.id));
-  return { count: videos.length, missing: ids.filter((x) => !got.has(x)), videos };
-}
-
-export async function fetchVideosChunked(ids, onChunk) {
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const data = await fetchVideos(ids.slice(i, i + CHUNK));
-    onChunk(data, Math.min(i + CHUNK, ids.length));
-  }
-}
+// videos.list(ID 묶음 → 영상 상세)를 부르던 fetchVideos/fetchVideosChunked는
+// "나중에 볼에서 뽑은 ID 가져오기"만 쓰던 것이라 2026-08-07에 그 기능과 함께 지웠다.
+// 풀은 이제 재생목록 동기화(fetchPlaylist)로만 채운다. 되살릴 일이 생기면 git 이력에서 꺼낸다.

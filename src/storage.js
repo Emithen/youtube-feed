@@ -88,9 +88,12 @@ export const loadPlaylistId = () => localStorage.getItem(KEYS.playlistId) || "";
 export const savePlaylistId = (id) => localStorage.setItem(KEYS.playlistId, id);
 
 // ────────────────────────── 내보내기 / 가져오기 ──────────────────────────
-// 브라우저 데이터를 지우면 전부 사라지는 문제의 유일한 대비책이다.
-// 그리고 이 함수 한 쌍이 그대로 기기 동기화(국면 B)의 **이민 수단**이 된다 —
-// 서버에 올릴 것도, 서버에서 받을 것도 정확히 이 모양이다. (파일 ↔ 서버만 바뀐다)
+// 브라우저 데이터를 지우면 전부 사라지는 문제의 대비책이자, 기기끼리 잇는 수단이다.
+// 이 함수 한 쌍이 주고받는 "JSON 한 장"이 그대로 드라이브에 올라간다 → drive.js
+//
+// 원래는 파일로 내보내기/가져오기가 먼저 있었고 드라이브가 그 자리에 끼워졌다.
+// 파일 쪽은 2026-08-07에 지웠지만 **이 함수들은 그대로다** — 저장 위치만 바뀌었을 뿐이라
+// 애초에 여기엔 고칠 게 없었다. (계약을 밖에 둔 값을 여기서 한 번 더 돌려받은 셈)
 
 export const EXPORT_VERSION = 1;
 
@@ -113,25 +116,26 @@ export function exportAll() {
 }
 
 // 합치기 규칙: **기존 것이 이긴다.**
-//  이 기기에서 손본 주제·이름이나 더 먼저 담은 시각을, 가져온 파일이 덮으면 안 된다.
+//  이 기기에서 손본 주제·이름이나 더 먼저 담은 시각을, 받아온 것이 덮으면 안 된다.
 //  덕분에 두 기기에서 번갈아 가져와도 데이터가 줄어들지 않는다(합집합).
-// replace=true는 "이 기기를 파일 내용으로 되돌린다" — 복구용이라 호출 쪽에서 확인을 받는다.
-export function importAll(payload, { replace = false } = {}) {
-  if (!isObj(payload) || !isObj(payload.data)) throw new Error("백업 파일 모양이 아니야 (data 없음)");
+// ⭐ **합치기만 있다.** 예전엔 파일 가져오기에 "덮어쓰기" 선택지가 있었지만 파일 기능과 함께
+//  2026-08-07에 지웠다. 드라이브는 어느 기기에서 눌러도 안전해야 해서 덮어쓰기를 쓰지 않는다.
+export function importAll(payload) {
+  if (!isObj(payload) || !isObj(payload.data)) throw new Error("백업 데이터 모양이 아니야 (data 없음)");
   if (payload.version !== EXPORT_VERSION) {
     throw new Error(`모르는 백업 버전이야 (${payload.version ?? "표기 없음"})`);
   }
   const d = payload.data;
 
-  // 파일이 손상됐어도 읽을 수 있는 부분만 읽는다. 모양이 틀린 항목은 조용히 건너뛴다.
+  // 내용이 손상됐어도 읽을 수 있는 부분만 읽는다. 모양이 틀린 항목은 조용히 건너뛴다.
   const inChannels = Array.isArray(d[KEYS.channels]) ? d[KEYS.channels] : [];
   const inWatched = isObj(d[KEYS.watched]) ? d[KEYS.watched] : {};
   const inPool = isObj(d[KEYS.pool]) ? d[KEYS.pool] : {};
   const inPlaylist = typeof d[KEYS.playlistId] === "string" ? d[KEYS.playlistId] : "";
 
-  const channels = replace ? [] : loadChannels();
-  const watched = replace ? {} : loadWatched();
-  const pool = replace ? {} : loadPool();
+  const channels = loadChannels();
+  const watched = loadWatched();
+  const pool = loadPool();
   const added = { channels: 0, watched: 0, pool: 0 };
 
   const have = new Set(channels.map((c) => c.channelId));
@@ -166,10 +170,7 @@ export function importAll(payload, { replace = false } = {}) {
   saveChannels(channels);
   saveWatched(watched); // 상한(WATCHED_MAX) 적용도 여기서 같이 걸린다
   savePool(pool);
-  if (replace) {
-    savePlaylistId(inPlaylist);
-    localStorage.removeItem(KEYS.cache); // 채널 목록이 통째로 바뀌었으니 캐시는 버린다
-  } else if (inPlaylist && !loadPlaylistId()) {
+  if (inPlaylist && !loadPlaylistId()) {
     savePlaylistId(inPlaylist); // 비어 있을 때만 채운다 (이 기기 설정이 우선)
   }
 

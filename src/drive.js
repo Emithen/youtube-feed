@@ -8,8 +8,11 @@
 //
 // appDataFolder가 뭔가:
 //  앱마다 하나씩 주어지는 **사용자에게 안 보이는 폴더**. 내 드라이브 목록에 나타나지 않고
-//  다른 앱도 못 본다. 대신 사람이 직접 열어 고칠 수도 없다
-//  → 그래서 **💾 백업 파일은 계속 유지한다.** 구글 계정이 잠기면 그게 유일한 출구다.
+//  다른 앱도 못 본다. 대신 사람이 직접 열어 고칠 수도 없다.
+//
+// ⚠️ 2026-08-07에 파일로 내보내기/가져오기를 지웠다 → **여기가 유일한 사본이다.**
+//    그 전까지는 백업 파일이 "구글 계정이 잠기면 쓸 출구" 역할을 했다.
+//    되살릴 일이 생기면 git 이력에서 꺼낸다 (app.js의 wireBackup / downloadJSON).
 //
 // ⚠️ 토큰은 1시간짜리이고 refresh token이 없다(youtube.js 참고).
 //    → **동기화는 로그인 세션에 종속된다.** 로그인 안 한 채로 쓰면 로컬만 바뀌고,
@@ -18,7 +21,7 @@
 // ⚠️ ?v= 는 app.js가 youtube.js를 부를 때와 **글자 그대로 같아야** 한다.
 //    쿼리가 다르면 브라우저가 **다른 모듈로 취급해 두 번 로드**하고, 그러면 토큰을 쥔
 //    변수가 둘이 되어 "로그인했는데 로그인이 필요해"가 뜬다. 버전 올릴 땐 항상 함께.
-import { authedFetch } from "./youtube.js?v=16";
+import { authedFetch } from "./youtube.js?v=19";
 
 const FILES = "https://www.googleapis.com/drive/v3/files";
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
