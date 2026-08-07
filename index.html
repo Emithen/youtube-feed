@@ -40,7 +40,7 @@
 
   <!-- 스타일은 src/style.css 한 장. 2026-08-05에 <style> 블록에서 떼어냈다.
        ?v= 는 여기도 필요하다 — 캐시된 옛 CSS + 새 HTML 조합으로 화면이 깨진다. -->
-  <link rel="stylesheet" href="src/style.css?v=16">
+  <link rel="stylesheet" href="src/style.css?v=19">
 </head>
 <body>
   <!-- 이 페이지는 "빈 껍데기"다.
@@ -48,36 +48,56 @@
        (추천 채널/data.json 경로는 2026-07-28에 화면에서 제거, 2026-07-31에 파일도 삭제 — git 이력에 남아 있다) -->
   <h1>최신 영상 모음</h1>
 
-  <!-- 구글 로그인: 내 유튜브 구독·재생목록을 직접 읽기 위한 인가(youtube.readonly).
-       ⛔ "나중에 볼"(WL)은 로그인해도 못 읽는다(2016년부터 차단) → watchme 우회는 그대로. -->
-  <div class="row">
-    <button type="button" id="authBtn">구글 로그인</button>
-    <span id="authStatus" class="status"></span>
-  </div>
+  <!-- 화면 넷 (갈래1 2.5단계). 해시 라우팅을 쓰는 이유:
+       정적 사이트라 history.pushState로 /channels 같은 경로를 만들면 **새로고침 때 404**가 난다
+       (그 경로에 파일이 없으니까). 해시는 서버 설정 없이 새로고침·뒤로가기가 그냥 된다. -->
+  <nav class="tabs" aria-label="화면">
+    <a href="#/feed"     data-screen="feed">📺 피드</a>
+    <a href="#/channels" data-screen="channels">📋 채널</a>
+    <a href="#/random"   data-screen="random">🎲 랜덤</a>
+    <a href="#/settings" data-screen="settings">⚙️ 설정</a>
+  </nav>
 
-  <details class="controls" open>
-    <summary>＋ 내 채널 추가</summary>
+  <!-- ══════════ ② 메인 피드 — 고른 채널의 최신 영상 ══════════ -->
+  <section class="screen" id="screen-feed" hidden>
+    <div id="my"></div>       <!-- 내가 추가한 채널 -->
+  </section>
 
-    <div class="row">
-      <button type="button" id="subsBtn" hidden>구독 채널 전부 가져오기</button>
-      <span id="subsStatus" class="status"></span>
-    </div>
+  <!-- ══════════ ① 채널 관리 — 무엇을 볼지 고른다 ══════════ -->
+  <section class="screen" id="screen-channels" hidden>
+    <details class="controls" open>
+      <summary>＋ 내 채널 추가</summary>
 
-    <form id="addForm">
-      <input id="chInput" type="text"
-             placeholder="채널 링크 / @핸들 / 채널ID(UC…)" required>
       <div class="row">
-        <input id="chTopic" type="text" placeholder="주제(선택)">
-        <input id="chName" type="text" placeholder="이름(선택)">
+        <button type="button" id="subsBtn" hidden>구독 채널 전부 가져오기</button>
+        <span id="subsStatus" class="status"></span>
       </div>
-      <button type="submit">추가</button>
-      <span id="addStatus" class="status"></span>
-    </form>
-    <p class="hint">이 브라우저에만 저장돼요(localStorage). 계정 없이 이 기기에서만 보입니다.</p>
-  </details>
+      <!-- 로그인 버튼은 ④ 설정에 있다. 여기서 구독 버튼이 그냥 사라지면
+           왜 없는지 알 수 없으므로, 로그아웃 상태에선 갈 곳을 알려준다. -->
+      <p class="hint" id="subsHint">
+        구독 목록에서 가져오려면 <a href="#/settings">⚙️ 설정</a>에서 구글 로그인하세요.
+      </p>
 
-  <!-- 나중에 볼 풀: ① 유튜브 "나중에 볼"에서 뽑아온 ID를 가져오기(일회성)
-                     ② watchme 재생목록 동기화(앞으로 담는 곳)  → 합쳐서 랜덤 추천 -->
+      <form id="addForm">
+        <input id="chInput" type="text"
+               placeholder="채널 링크 / @핸들 / 채널ID(UC…)" required>
+        <div class="row">
+          <input id="chTopic" type="text" placeholder="주제(선택)">
+          <input id="chName" type="text" placeholder="이름(선택)">
+        </div>
+        <button type="submit">추가</button>
+        <span id="addStatus" class="status"></span>
+      </form>
+      <p class="hint">이 브라우저에만 저장돼요(localStorage). 계정 없이 이 기기에서만 보입니다.</p>
+    </details>
+  </section>
+
+  <!-- ══════════ ③ 랜덤 추천 ══════════ -->
+  <section class="screen" id="screen-random" hidden>
+  <!-- 나중에 볼 풀: watchme 재생목록을 동기화해 채운다 → 그 안에서 랜덤 추천.
+       ⛔ 유튜브 "나중에 볼"(WL)은 API·RSS 모두 막혀 있어 전용 재생목록으로 우회한다.
+          예전엔 WL 화면에서 뽑은 ID를 붙여넣는 일회성 가져오기도 있었으나
+          재생목록 동기화로 충분해져 2026-08-07에 지웠다(git 이력에 남아 있다). -->
   <section class="pool">
     <div class="pool-head">
       <strong>🎲 랜덤 추천</strong>
@@ -93,55 +113,48 @@
       <summary>영상 채워넣기 / 설정</summary>
 
       <label class="lbl">watchme 재생목록 (앞으로 담는 곳)</label>
+      <!-- 풀 비우기를 이 줄에 같이 두면 폰(375px)에서 입력칸이 눌린다 → 줄을 나눈다 -->
       <div class="row">
         <input id="plInput" type="text" placeholder="재생목록 ID 또는 URL (PL...)">
         <button type="button" id="syncBtn">동기화</button>
       </div>
-
-      <label class="lbl">"나중에 볼"에서 뽑은 ID 가져오기 (일회성)</label>
-      <textarea id="idsInput" rows="3" placeholder='["abc123","def456"] 또는 줄바꿈·쉼표로 구분'></textarea>
+      <p id="poolStatus" class="status"></p>
       <div class="row">
-        <button type="button" id="importBtn">가져오기</button>
         <button type="button" id="clearBtn" class="ghost">풀 비우기</button>
       </div>
-      <p id="poolStatus" class="status"></p>
     </details>
   </section>
+  </section>
 
-  <!-- 백업: localStorage는 브라우저 데이터를 지우면 통째로 날아가고 계정이 없어 복구 수단이 없다.
-       이 파일 한 장이 그 유일한 대비책이고, 그대로 기기 동기화(국면 B)의 이민 수단이 된다. -->
+  <!-- ══════════ ④ 설정 — 로그인·데이터 관리 ══════════ -->
+  <section class="screen" id="screen-settings" hidden>
+
+  <!-- 구글 로그인: 내 유튜브 구독·재생목록을 직접 읽기 위한 인가(youtube.readonly).
+       ⛔ "나중에 볼"(WL)은 로그인해도 못 읽는다(2016년부터 차단) → watchme 우회는 그대로. -->
+  <div class="row">
+    <button type="button" id="authBtn">구글 로그인</button>
+    <span id="authStatus" class="status"></span>
+  </div>
+
+  <!-- 기기 동기화: localStorage는 브라우저 데이터를 지우면 통째로 날아간다.
+       드라이브의 앱 전용 폴더에 둔 JSON 한 장이 그 대비책이자 기기끼리 잇는 수단이다.
+       (파일로 내보내기/가져오기도 있었으나 드라이브로 갈음하고 2026-08-07에 지웠다 — git 이력에 남아 있다) -->
   <details class="controls" id="backup">
-    <summary>💾 백업 · ☁️ 드라이브 동기화</summary>
+    <summary>☁️ 드라이브 동기화</summary>
 
-    <label class="lbl">☁️ 구글 드라이브 (기기끼리 잇기)</label>
     <div class="row">
       <button type="button" id="driveUpBtn">올리기</button>
       <button type="button" id="driveDownBtn" class="ghost">내려받기</button>
     </div>
     <p id="driveStatus" class="status"></p>
     <p class="hint">
-      앱 전용 숨은 폴더에 저장돼요(내 드라이브 목록엔 안 보이고, 다른 앱도 못 봅니다).
+      채널 · 본 영상 · 나중에 볼 풀 · 재생목록 ID를 앱 전용 숨은 폴더에 저장해요
+      (내 드라이브 목록엔 안 보이고, 다른 앱도 못 봅니다. 채널 캐시는 다시 만들어지므로 제외).
       <strong>올리기는 덮어쓰지 않고 합칩니다</strong> — 다른 기기에서 담아둔 것이 사라지지 않아요.
-    </p>
-
-    <label class="lbl">💾 파일로 (내보내기 / 가져오기)</label>
-    <div class="row">
-      <button type="button" id="exportBtn">내보내기</button>
-      <button type="button" id="importDataBtn" class="ghost">가져오기</button>
-      <input type="file" id="importFile" accept="application/json,.json" hidden>
-    </div>
-    <label class="chk">
-      <input type="checkbox" id="importReplace">
-      덮어쓰기 (기본은 합치기 — 기존 것을 지키고 없는 것만 채움)
-    </label>
-    <p id="backupStatus" class="status"></p>
-    <p class="hint">
-      채널 · 본 영상 · 나중에 볼 풀 · 재생목록 ID를 파일 한 장으로. (채널 캐시는 다시 만들어지므로 제외)
-      드라이브를 쓰더라도 <strong>이 파일은 계속 뽑아두세요</strong> — 구글 계정이 잠기면 유일한 출구입니다.
     </p>
   </details>
 
-  <div id="my"></div>       <!-- 내가 추가한 채널 -->
+  </section>
 
   <!-- ?v= 는 캐시 버스팅: app.js를 고칠 때마다 숫자를 올린다.
        그래야 새 index.html이 캐시된 옛 app.js를 쓰다 깨지는 사고(버전 불일치)가 안 난다.
@@ -155,6 +168,6 @@
           (증상: 로그인했는데 드라이브에서 "로그인이 필요해").
        ⚠️ 손으로 맞출 곳이 여섯이다. 더 늘면 그게 **빌드 단계를 들일 신호**다. -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script type="module" src="src/app.js?v=16"></script>
+  <script type="module" src="src/app.js?v=19"></script>
 </body>
 </html>

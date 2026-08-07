@@ -19,10 +19,10 @@
 // ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
 // (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 네 줄도 같이.)
 // ⚠️ drive.js도 youtube.js를 import한다 — **그쪽 ?v= 도 같은 값이어야** 모듈이 하나로 유지된다.
-import * as worker from "./worker.js?v=16";
-import * as store from "./storage.js?v=16";
-import * as yt from "./youtube.js?v=16";
-import * as drive from "./drive.js?v=16";
+import * as worker from "./worker.js?v=19";
+import * as store from "./storage.js?v=19";
+import * as yt from "./youtube.js?v=19";
+import * as drive from "./drive.js?v=19";
 
 // 바깥과 닿는 곳이 둘로 갈린다:
 //  worker.js  … 채널 최신 영상(RSS). 로그인과 무관하게 늘 동작한다.
@@ -148,9 +148,15 @@ function emptyStateEl() {
 }
 
 // ── 내 채널: localStorage 목록 → Worker로 최신 영상 (캐시 먼저 → 백그라운드 갱신) ──
+// 한 번이라도 그렸는지. 피드 화면에 처음 들어올 때만 그리려고 둔다(아래 showScreen).
+// 여기서 세우는 이유: 채널 추가·구독 가져오기·백업 복원도 이 함수를 부르는데,
+// 그때 이미 최신이 그려지므로 나중에 피드로 옮겨갈 때 **또 요청을 낼 이유가 없다.**
+let feedRendered = false;
+
 function renderMyChannels() {
   const box = document.getElementById("my");
   if (!box) return;
+  feedRendered = true;
   const list = store.loadChannels();
   const cache = store.loadCache();
   box.replaceChildren();
@@ -319,58 +325,14 @@ function pickRandom() {
   document.getElementById("repickBtn").hidden = false;
 }
 
-// ── ① ID 목록 가져오기 (50개씩 나눠서) ──
-// 붙여넣기 형식을 가리지 않는다: JSON 배열, 줄바꿈, 쉼표, URL, 심지어 잘린 JSON까지.
-// 요령 — 유튜브 영상 ID는 **항상 11자**([A-Za-z0-9_-]). 그래서
-//  ① 단어문자·하이픈이 아닌 것(따옴표·대괄호·쉼표·줄바꿈·슬래시…)을 전부 구분자로 보고 쪼갠 뒤
-//  ② 길이가 정확히 11인 토큰만 남긴다.
-// 이렇게 하면 URL 속 "youtube"(7자)·"watch"(5자) 같은 조각은 자동으로 걸러진다.
-function parseIds(text) {
-  const seen = new Set();
-  return String(text || "")
-    .split(/[^\w-]+/)
-    .filter((t) => /^[\w-]{11}$/.test(t) && !seen.has(t) && seen.add(t));
-}
-
 // 풀을 채우려면 로그인이 필요하다. 눌러본 뒤 실패하게 두지 말고 먼저 알려준다.
 function needsLogin(status) {
   if (yt.isSignedIn()) return false;
-  status.textContent = "로그인이 필요해 — 맨 위 '구글 로그인'을 먼저 눌러줘.";
+  status.textContent = "로그인이 필요해 — ⚙️ 설정에서 구글 로그인을 먼저 해줘.";
   return true;
 }
 
-async function importIds() {
-  const status = document.getElementById("poolStatus");
-  const btn = document.getElementById("importBtn");
-  if (needsLogin(status)) return;
-  const ids = parseIds(document.getElementById("idsInput").value);
-  if (ids.length === 0) {
-    status.textContent = "가져올 ID가 없어.";
-    return;
-  }
-
-  btn.disabled = true;
-  let added = 0, missing = 0;
-  try {
-    // 50개씩 쪼개 부르는 건 youtube.js가 안다. 여기선 묶음마다 무엇을 할지만 정한다.
-    await yt.fetchVideosChunked(ids, (data, done) => {
-      added += mergeIntoPool(data.videos || [], "watchlater");
-      missing += (data.missing || []).length;
-      status.textContent = `가져오는 중… ${done}/${ids.length}`;
-    });
-    status.textContent =
-      `가져오기 완료: ${added}개 추가` +
-      (missing ? ` (비공개·삭제 ${missing}개 제외)` : "") +
-      (ids.length - added - missing > 0 ? ` (이미 있던 것 ${ids.length - added - missing}개)` : "");
-    document.getElementById("idsInput").value = "";
-  } catch (e) {
-    status.textContent = "실패: " + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// ── ② watchme 재생목록 동기화 ──
+// ── watchme 재생목록 동기화 — 풀을 채우는 유일한 길 ──
 // URL을 붙여넣으면 list= 값만 꺼낸다. 순수 ID면 그대로 쓴다.
 function normalizePlaylistId(s) {
   const m = String(s).match(/[?&]list=([\w-]+)/);
@@ -420,7 +382,6 @@ function wirePool() {
 
   pick.addEventListener("click", pickRandom);
   document.getElementById("repickBtn").addEventListener("click", pickRandom);
-  document.getElementById("importBtn").addEventListener("click", importIds);
   document.getElementById("syncBtn").addEventListener("click", syncPlaylist);
   document.getElementById("clearBtn").addEventListener("click", () => {
     if (!confirm("풀을 비울까? (본 영상 기록은 남습니다)")) return;
@@ -444,11 +405,15 @@ function wireAuth() {
   if (!btn) return;
   const status = document.getElementById("authStatus");
   const subsBtn = document.getElementById("subsBtn");
+  // 로그인 버튼과 구독 버튼이 서로 다른 화면에 있다(설정 ↔ 채널 관리).
+  // 로그아웃 상태에서 구독 버튼이 그냥 사라지면 이유를 알 수 없어 안내를 대신 띄운다.
+  const subsHint = document.getElementById("subsHint");
 
   // 로그인 상태가 바뀔 때마다 버튼 문구와 구독 버튼 노출을 맞춘다
   yt.onAuthChange((on) => {
     btn.textContent = on ? "로그아웃" : "구글 로그인";
     subsBtn.hidden = !on;
+    if (subsHint) subsHint.hidden = on;
     if (on) status.textContent = "로그인됨 — 내 구독·재생목록을 직접 읽어요";
   });
 
@@ -507,77 +472,29 @@ async function importSubscriptions() {
   }
 }
 
-// ══════════════════════════ 백업 (내보내기 / 가져오기) ══════════════════════════
-// 무엇을 담고 어떻게 합칠지는 storage.js가 안다. 여기서는 **파일로 만들고 파일을 읽는 것**만 한다.
-// 그래서 나중에 저장 위치가 서버로 바뀌어도 이 파일에서 고칠 게 없다.
+// ══════════════════════ 동기화 결과를 사람 말로 ══════════════════════
+// 무엇을 담고 어떻게 합칠지는 storage.js가 안다. 여기서는 **세어서 보여주는 것**만 한다.
 
-function downloadJSON(obj, filename) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// 무엇이 얼마나 들었는지 세어 보여준다 — 파일을 열어보지 않고도 제대로 나왔는지 알 수 있게.
+// 무엇이 얼마나 들었는지 세어 보여준다 — 저장된 것을 열어보지 않고도 제대로 됐는지 알 수 있게.
 function countsOf(data) {
   const n = (v) => (Array.isArray(v) ? v.length : Object.keys(v || {}).length);
   return `채널 ${n(data[store.KEYS.channels])} · 본 영상 ${n(data[store.KEYS.watched])} · 풀 ${n(data[store.KEYS.pool])}`;
 }
 
-// 가져온 것이 화면에 바로 보이게. 안 그러면 새로고침해야 해서 성공했는지 알 수 없다.
-// 파일·드라이브 양쪽에서 똑같이 필요해 함수로 뺐다.
+const countsAdded = (a) => `채널 +${a.channels} · 본 영상 +${a.watched} · 풀 +${a.pool}`;
+
+// 받아온 것이 화면에 바로 보이게. 안 그러면 새로고침해야 해서 성공했는지 알 수 없다.
+// ⚠️ 다른 화면(#/feed·#/random)의 요소를 건드린다 — 숨어 있어도 DOM에 있으니 그대로 동작한다.
 function showImported() {
   renderMyChannels();
   refreshPoolCount();
   document.getElementById("plInput").value = store.loadPlaylistId();
 }
 
-const countsAdded = (a) => `채널 +${a.channels} · 본 영상 +${a.watched} · 풀 +${a.pool}`;
-
-function wireBackup() {
-  const outBtn = document.getElementById("exportBtn");
-  if (!outBtn) return;
-  const status = document.getElementById("backupStatus");
-  const file = document.getElementById("importFile");
-
-  outBtn.addEventListener("click", () => {
-    const payload = store.exportAll();
-    downloadJSON(payload, `youtube-feed-backup-${payload.exportedAt.slice(0, 10)}.json`);
-    status.textContent = "내보냈어 — " + countsOf(payload.data);
-  });
-
-  // 파일 선택창은 버튼처럼 생기지 않아서 감춰두고 버튼이 대신 연다
-  document.getElementById("importDataBtn").addEventListener("click", () => file.click());
-
-  file.addEventListener("change", async () => {
-    const f = file.files[0];
-    if (!f) return;
-    const replace = document.getElementById("importReplace").checked;
-    // 덮어쓰기는 되돌릴 수 없다. 합치기(기본)는 안전하므로 묻지 않는다.
-    if (replace && !confirm("덮어쓰기로 가져올까?\n지금 이 브라우저의 채널·본 영상·풀이 파일 내용으로 바뀝니다.")) {
-      file.value = "";
-      return;
-    }
-
-    status.textContent = "읽는 중…";
-    try {
-      const added = store.importAll(JSON.parse(await f.text()), { replace });
-      status.textContent =
-        (replace ? "덮어쓰기 완료 — " : "합치기 완료 — ") + countsAdded(added);
-      showImported();
-    } catch (e) {
-      status.textContent = "실패: " + e.message;
-    } finally {
-      file.value = ""; // 같은 파일을 다시 골라도 change가 뜨도록 비운다
-    }
-  });
-}
-
 // ══════════════════════ 드라이브 동기화 (국면 B) ══════════════════════
 // 백업 파일이 하던 일을 그대로 드라이브가 한다. **바뀌는 건 저장 위치뿐**이라
 // exportAll/importAll을 그대로 쓴다 — 여기서 새로 만든 규칙은 하나도 없다.
+// (2026-08-07에 파일 쪽을 지웠고, 그때도 이 두 함수는 손대지 않았다. 계약을 밖에 둔 값.)
 //
 // ⭐ 올리기가 **덮어쓰기가 아니라 합치기**인 이유:
 //   파일 통째로 쓰는 방식이라 그냥 올리면 다른 기기가 그 사이에 담아둔 게 사라진다.
@@ -638,10 +555,51 @@ function wireDrive() {
   );
 }
 
+// ══════════════════════════ 화면 전환 (해시 라우팅) ══════════════════════════
+// 갈래1 2.5단계. 한 화면에 전부 쌓여 있던 것을 넷으로 가른다.
+//
+// 왜 해시(#/feed)인가: 정적 사이트라 history.pushState로 /feed 같은 경로를 만들면
+//  **새로고침 때 404**가 난다(그 경로에 파일이 없다). 해시는 서버 설정 없이 그냥 된다.
+//
+// 왜 요소를 지우지 않고 숨기는가: wire* 함수들이 전부 getElementById로 요소를 잡는다.
+//  DOM에 남겨두면 어느 화면에 있든 그대로 동작하고, showImported()처럼 **다른 화면의
+//  요소를 건드리는 코드**(#plInput)도 손댈 필요가 없다.
+
+const SCREENS = ["feed", "channels", "random", "settings"];
+
+// 모르는 해시(#/xxx)나 빈 해시는 피드로. 예전에 공유한 "해시 없는 주소"도 그대로 열린다.
+function currentScreen() {
+  const name = location.hash.replace(/^#\/?/, "");
+  return SCREENS.includes(name) ? name : "feed";
+}
+
+function showScreen() {
+  const now = currentScreen();
+
+  for (const name of SCREENS) {
+    const el = document.getElementById("screen-" + name);
+    if (el) el.hidden = name !== now;
+  }
+  for (const tab of document.querySelectorAll(".tabs a")) {
+    if (tab.dataset.screen === now) tab.setAttribute("aria-current", "page");
+    else tab.removeAttribute("aria-current");
+  }
+
+  // ⭐ 화면을 나눈 실질적 이득이 이 두 줄이다. 피드 렌더는 **채널 수만큼 Worker 요청**을
+  //   내보내는 유일하게 비싼 초기화라, 피드를 볼 때까지 미룬다. 예전엔 설정을 열든
+  //   랜덤을 뽑든 열자마자 전부 나갔다. (나머지 wire*는 이벤트만 붙이므로 싸다)
+  if (now === "feed" && !feedRendered) renderMyChannels();
+
+  window.scrollTo(0, 0);
+}
+
 // ────────────────────────── 시작 ──────────────────────────
-renderMyChannels();
+// 이벤트를 붙이는 일은 요청이 안 나가므로 화면과 무관하게 한 번에 붙인다.
+// 비싼 것(피드 렌더)만 showScreen이 필요할 때 부른다.
 wireForm();
 wirePool();
 wireAuth();
-wireBackup();
 wireDrive();
+
+window.addEventListener("hashchange", showScreen);
+showScreen();
