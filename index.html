@@ -38,141 +38,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="영상모음">
 
-  <style>
-    /* ── 색 토큰 ──────────────────────────────────────────────────────────
-       색을 여기 한 곳에서만 정한다. 아래 규칙들은 var()로만 색을 쓴다.
-       이름은 "무슨 색인가"가 아니라 **"무슨 역할인가"** 로 짓는다
-       (--blue가 아니라 --accent). 그래야 값을 바꿔도 이름이 안 거짓말한다.
-
-       ⚠️ 강조색은 CSS 밖에도 네 군데 더 있다. 바꿀 땐 같이 바꿔야 한다:
-         ① 위쪽 favicon data URI의 %234a90e2   ② <meta name="theme-color">
-         ③ manifest.json 의 theme_color         ④ icons/*.svg 의 fill
-       CSS 변수가 그쪽까지는 못 간다 — 지금은 손으로 맞추는 수밖에 없다. */
-    :root {
-      color-scheme: light dark;                /* 폰 다크모드 자동 대응 */
-
-      --accent: #4a90e2;                       /* 링크·버튼·강조 막대 */
-      --accent-ink: #fff;                      /* 강조색 위에 얹는 글자 */
-      --text-muted: #8a8a8a;                   /* 날짜·안내·보조 문구 */
-      --line: #8886;                           /* 입력칸·고스트 버튼 테두리 */
-      --line-faint: #8883;                     /* 섹션 상자 테두리 (더 옅다) */
-      --danger: #c0392b;                       /* 삭제 */
-      --danger-line: #c0392b55;
-    }
-    /* 회색 계열을 #888 + 알파로 둔 건 의도다 — 라이트/다크 어느 쪽 배경에서도
-       같은 값이 적당히 묻힌다. 그래서 지금은 다크 전용 오버라이드가 필요 없다.
-       필요해지면 여기 아래에 @media (prefers-color-scheme: dark) 로 값만 덮는다. */
-    body {
-      font-family: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
-      max-width: 640px; margin: 0 auto; padding: 16px;
-      line-height: 1.6;                          /* 줄 간격 -> 읽기 편하게 */
-    }
-    h1 { font-size: 1.5rem; margin-bottom: 2px; }
-    h2 {                                         /* 채널 제목 왼쪽 색막대로 구분 */
-      font-size: 1.05rem; margin: 26px 0 8px;
-      padding-left: 8px; border-left: 4px solid var(--accent);
-    }
-    p { margin: 7px 0; }
-    a {                                          /* 링크 크고 굵게 -> 폰에서 누르기 쉬움 */
-      font-size: 1.05rem; text-decoration: none;
-      color: var(--accent); font-weight: 600;
-    }
-    a:hover, a:active { text-decoration: underline; }
-    small { color: var(--text-muted); }                   /* 날짜.시각은 은은하게 */
-
-    /* ── 내 채널 추가 UI ── */
-    .controls {
-      border: 1px solid var(--line-faint); border-radius: 10px;
-      padding: 10px 14px; margin: 14px 0 22px;
-    }
-    .controls summary { cursor: pointer; font-weight: 600; }
-    #addForm { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
-    #addForm input {
-      padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
-      font-size: 1rem; background: transparent; color: inherit;
-    }
-    #addForm .row { display: flex; gap: 8px; }
-    #addForm .row input { flex: 1; min-width: 0; }
-    #addForm button {
-      padding: 8px 14px; border: 0; border-radius: 8px;
-      background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 1rem; cursor: pointer;
-    }
-    #addForm button:disabled { opacity: .5; cursor: default; }
-    .status { font-size: .9rem; color: var(--text-muted); min-height: 1em; }
-    .hint { font-size: .8rem; color: var(--text-muted); margin: 8px 0 0; }
-    .group {                                     /* "내 채널 / 추천 채널" 구분 라벨 */
-      font-size: .8rem; color: var(--text-muted); letter-spacing: .04em; margin: 24px 0 0;
-    }
-    /* ── 랜덤 추천 ── */
-    .pool {
-      border: 1px solid var(--line-faint); border-radius: 10px;
-      padding: 12px 14px; margin: 14px 0 22px;
-    }
-    .pool-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
-    .pool .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .pool button {
-      padding: 8px 14px; border: 0; border-radius: 8px;
-      background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 1rem; cursor: pointer;
-    }
-    .pool button.ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--line); }
-    .pool button:disabled { opacity: .5; cursor: default; }
-    .pool input, .pool textarea {
-      flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
-      font-size: 1rem; background: transparent; color: inherit; font-family: inherit;
-    }
-    .pool textarea { width: 100%; margin-bottom: 8px; }
-    .pool .sub { margin-top: 14px; }
-    .pool .sub summary { cursor: pointer; color: var(--text-muted); font-size: .9rem; }
-    .lbl { display: block; margin: 12px 0 5px; font-size: .85rem; color: var(--text-muted); }
-    #pick:not(:empty) {                          /* 뽑힌 영상 카드 */
-      margin: 12px 0 4px; padding: 12px 14px;
-      border-left: 4px solid var(--accent); border-radius: 6px;
-      background: color-mix(in srgb, var(--accent) 9%, transparent);
-    }
-    #pick .meta { display: block; margin-top: 4px; color: var(--text-muted); font-size: .85rem; }
-
-    /* ── 백업 (내보내기 / 가져오기) ── */
-    #backup .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
-    #backup button {
-      padding: 8px 14px; border: 0; border-radius: 8px;
-      background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 1rem; cursor: pointer;
-    }
-    #backup button.ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--line); }
-    /* 드라이브 버튼은 로그아웃 상태에서 꺼진다 → 꺼진 게 보여야 한다 (.pool·#addForm과 같은 규칙) */
-    #backup button:disabled { opacity: .5; cursor: default; }
-    #backup .chk {
-      display: flex; align-items: center; gap: 6px;
-      margin-top: 12px; font-size: .85rem; color: var(--text-muted);
-    }
-
-    span.new {                                   /* 24시간 이내 업로드 표시 */
-      display: inline-block; margin-right: 7px;
-      padding: 1px 6px; border-radius: 5px;
-      background: var(--accent); color: var(--accent-ink);
-      font-size: .68rem; font-weight: 700; letter-spacing: .04em;
-      vertical-align: 2px;
-    }
-
-    /* ── 본 영상 표시 ── */
-    button.seen {                                /* 봤음 토글. 색만이 아니라 기호(✓/○)로도 구분 */
-      margin-left: 8px; padding: 0 4px;
-      font-size: .85rem; line-height: 1;
-      background: transparent; border: 0; cursor: pointer;
-      color: var(--text-muted); opacity: .55;
-    }
-    button.seen:hover { opacity: 1; }
-    p.watched a {                                /* 본 영상은 흐리게 */
-      opacity: .45; font-weight: 500;
-    }
-    p.watched small { opacity: .6; }
-    p.watched button.seen { color: var(--accent); opacity: .9; }
-
-    button.del {                                 /* 채널 삭제 버튼 */
-      margin-left: 10px; font-size: .75rem; font-weight: 500;
-      color: var(--danger); background: transparent; border: 1px solid var(--danger-line);
-      border-radius: 6px; padding: 1px 8px; cursor: pointer; vertical-align: middle;
-    }
-  </style>
+  <!-- 스타일은 src/style.css 한 장. 2026-08-05에 <style> 블록에서 떼어냈다.
+       ?v= 는 여기도 필요하다 — 캐시된 옛 CSS + 새 HTML 조합으로 화면이 깨진다. -->
+  <link rel="stylesheet" href="src/style.css?v=15">
 </head>
 <body>
   <!-- 이 페이지는 "빈 껍데기"다.
@@ -280,9 +148,12 @@
        경로는 배포 후 URL과 그대로 이어진다(publish_dir이 저장소 루트라 src/도 통째로 올라간다).
        ⚠️ type="module" 이후로는 여기의 ?v= 가 app.js에만 붙는다.
           worker.js·storage.js·youtube.js·drive.js는 app.js 안의 import 경로에 붙은 ?v= 로 갈린다
-          → 올릴 땐 여기 1곳 + app.js의 import 4곳 + **drive.js가 youtube.js를 부르는 1곳**을 함께.
-          마지막 것을 빠뜨리면 youtube.js가 두 번 로드돼 토큰을 쥔 변수가 둘이 된다
-          (증상: 로그인했는데 드라이브에서 "로그인이 필요해"). -->
+          → 올릴 땐 **여섯 곳을 함께**:
+            ① 위 <link>의 style.css  ② 여기 app.js  ③④⑤⑥ app.js의 import 4개
+            + drive.js가 youtube.js를 부르는 1곳(= import와 같은 값이어야 한다)
+          drive.js 쪽을 빠뜨리면 youtube.js가 두 번 로드돼 토큰을 쥔 변수가 둘이 된다
+          (증상: 로그인했는데 드라이브에서 "로그인이 필요해").
+       ⚠️ 손으로 맞출 곳이 여섯이다. 더 늘면 그게 **빌드 단계를 들일 신호**다. -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script type="module" src="src/app.js?v=15"></script>
 </body>
