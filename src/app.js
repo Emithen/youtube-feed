@@ -19,10 +19,10 @@
 // ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
 // (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 네 줄도 같이.)
 // ⚠️ drive.js도 youtube.js를 import한다 — **그쪽 ?v= 도 같은 값이어야** 모듈이 하나로 유지된다.
-import * as worker from "./worker.js?v=15";
-import * as store from "./storage.js?v=15";
-import * as yt from "./youtube.js?v=15";
-import * as drive from "./drive.js?v=15";
+import * as worker from "./worker.js?v=16";
+import * as store from "./storage.js?v=16";
+import * as yt from "./youtube.js?v=16";
+import * as drive from "./drive.js?v=16";
 
 // 바깥과 닿는 곳이 둘로 갈린다:
 //  worker.js  … 채널 최신 영상(RSS). 로그인과 무관하게 늘 동작한다.
