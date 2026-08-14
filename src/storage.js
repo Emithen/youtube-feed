@@ -138,6 +138,11 @@ export function exportAll() {
 // 합치기 규칙: **기존 것이 이긴다.**
 //  이 기기에서 손본 주제·이름이나 더 먼저 담은 시각을, 받아온 것이 덮으면 안 된다.
 //  덕분에 두 기기에서 번갈아 가져와도 데이터가 줄어들지 않는다(합집합).
+// ⚠️ **알려진 한계(2026-08-15): 선별(active)은 "이미 있는 채널"엔 전파되지 않는다.**
+//  이 규칙은 *쌓이는 것*(주제·이름·addedAt)에 맞게 만들어졌는데, active는 쌓이는 게 아니라
+//  **선택**이라 합집합 논리가 안 맞는다. 그래서 지금 되는 건 이것뿐이다:
+//    ✅ 한 기기에서 고르고 → **새 기기**에서 복원   ❌ 두 기기가 같은 채널을 이미 가진 경우
+//  양방향으로 맞추려면 필드별 시각(activeAt)이 필요하다. **실제로 아플 때** 붙인다.
 // ⭐ **합치기만 있다.** 예전엔 파일 가져오기에 "덮어쓰기" 선택지가 있었지만 파일 기능과 함께
 //  2026-08-07에 지웠다. 드라이브는 어느 기기에서 눌러도 안전해야 해서 덮어쓰기를 쓰지 않는다.
 export function importAll(payload) {
@@ -161,11 +166,16 @@ export function importAll(payload) {
   const have = new Set(channels.map((c) => c.channelId));
   for (const c of inChannels) {
     if (!isObj(c) || !c.channelId || have.has(c.channelId)) continue;
-    channels.push({
+    const ch = {
       topic: c.topic || "내 채널",
       name: c.name || c.channelId,
       channelId: c.channelId,
-    });
+    };
+    // ⭐ 선별(active)도 같이 옮긴다. 안 옮기면 **새 기기에서 복원할 때 319개가 전부 켜진 채로**
+    //    살아나 골라둔 것이 통째로 날아간다(2026-08-15에 실측으로 확인).
+    //    `false`일 때만 싣는 이유: "필드 없음 = 켜짐" 규약을 그대로 두려고. 데이터도 안 늘어난다.
+    if (c.active === false) ch.active = false;
+    channels.push(ch);
     have.add(c.channelId);
     added.channels++;
   }
