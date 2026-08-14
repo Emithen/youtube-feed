@@ -171,6 +171,32 @@
   p.watched small { opacity: .6; }
   p.watched button.seen { color: var(--accent); opacity: .9; }
 
+  /* ── ① 채널 관리: 고르는 목록 ──
+     피드의 채널(h2 + 영상들)과 달리 한 채널이 **한 줄**이다. 수백 개를 훑는 화면이라
+     줄 높이가 곧 훑는 속도다. */
+  .ch-head { display: flex; align-items: baseline; gap: 10px; margin: 22px 0 8px; }
+  #chBulk { display: flex; gap: 8px; margin-bottom: 12px; }
+  #chBulk button.ghost {
+    padding: 6px 12px; border-radius: 8px; font-size: .9rem; cursor: pointer;
+    background: transparent; color: var(--text-muted); border: 1px solid var(--line);
+  }
+  .ch {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 0; border-bottom: 1px solid var(--line-faint);
+  }
+  .ch .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .ch button.toggle {                          /* 켜기/끄기. 색만이 아니라 기호(☑/☐)로도 구분 */
+    flex: none; font-size: 1.1rem; line-height: 1;
+    background: transparent; border: 0; cursor: pointer; color: var(--accent);
+    /* ⭐ 여기는 **수백 번 누르는 화면**이다(구독 319개를 고른다). 기호만 두면 히트영역이
+       19×18이라 폰에서 못 누른다 → 패딩으로 손가락 크기까지 넓히고, 음수 마진으로
+       되돌려 **줄 높이는 그대로** 둔다. 줄 높이가 곧 훑는 속도라서 키울 수 없다. */
+    padding: 12px 10px; margin: -12px -6px;
+  }
+  .ch.off .name { opacity: .45; }              /* 꺼진 줄은 흐리게 (본 영상과 같은 규칙) */
+  .ch.off button.toggle { color: var(--text-muted); opacity: .6; }
+  .ch button.del { margin-left: 0; flex: none; }
+
   button.del {                                 /* 채널 삭제 버튼 */
     margin-left: 10px; font-size: .75rem; font-weight: 500;
     color: var(--danger); background: transparent; border: 1px solid var(--danger-line);

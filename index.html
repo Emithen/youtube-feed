@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
@@ -40,7 +40,7 @@
 
   <!-- 스타일은 src/style.css 한 장. 2026-08-05에 <style> 블록에서 떼어냈다.
        ?v= 는 여기도 필요하다 — 캐시된 옛 CSS + 새 HTML 조합으로 화면이 깨진다. -->
-  <link rel="stylesheet" href="src/style.css?v=19">
+  <link rel="stylesheet" href="src/style.css?v=20">
 </head>
 <body>
   <!-- 이 페이지는 "빈 껍데기"다.
@@ -90,6 +90,18 @@
       </form>
       <p class="hint">이 브라우저에만 저장돼요(localStorage). 계정 없이 이 기기에서만 보입니다.</p>
     </details>
+
+    <!-- 내 채널 목록 — **무엇을 볼지 고르는 곳.** 영상 없이 이름만 있어야 수백 개를 훑는다.
+         (영상까지 그리는 곳은 ② 피드다. 여기서 Worker를 부르면 화면 여는 값이 확 뛴다) -->
+    <div class="ch-head">
+      <strong>내 채널</strong>
+      <span id="chCount" class="status"></span>
+    </div>
+    <div class="row" id="chBulk">
+      <button type="button" id="allOff" class="ghost">전부 끄기</button>
+      <button type="button" id="allOn"  class="ghost">전부 켜기</button>
+    </div>
+    <div id="chList"></div>
   </section>
 
   <!-- ══════════ ③ 랜덤 추천 ══════════ -->
@@ -168,6 +180,6 @@
           (증상: 로그인했는데 드라이브에서 "로그인이 필요해").
        ⚠️ 손으로 맞출 곳이 여섯이다. 더 늘면 그게 **빌드 단계를 들일 신호**다. -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script type="module" src="src/app.js?v=19"></script>
+  <script type="module" src="src/app.js?v=20"></script>
 </body>
 </html>
