@@ -135,28 +135,79 @@ export function exportAll() {
   };
 }
 
-// 합치기 규칙: **기존 것이 이긴다.**
-//  이 기기에서 손본 주제·이름이나 더 먼저 담은 시각을, 받아온 것이 덮으면 안 된다.
-//  덕분에 두 기기에서 번갈아 가져와도 데이터가 줄어들지 않는다(합집합).
-// ⚠️ **알려진 한계(2026-08-15): 선별(active)은 "이미 있는 채널"엔 전파되지 않는다.**
-//  이 규칙은 *쌓이는 것*(주제·이름·addedAt)에 맞게 만들어졌는데, active는 쌓이는 게 아니라
-//  **선택**이라 합집합 논리가 안 맞는다. 그래서 지금 되는 건 이것뿐이다:
-//    ✅ 한 기기에서 고르고 → **새 기기**에서 복원   ❌ 두 기기가 같은 채널을 이미 가진 경우
-//  양방향으로 맞추려면 필드별 시각(activeAt)이 필요하다. **실제로 아플 때** 붙인다.
-// ⭐ **합치기만 있다.** 예전엔 파일 가져오기에 "덮어쓰기" 선택지가 있었지만 파일 기능과 함께
-//  2026-08-07에 지웠다. 드라이브는 어느 기기에서 눌러도 안전해야 해서 덮어쓰기를 쓰지 않는다.
-export function importAll(payload) {
+// ══ 받아온 백업을 이 기기에 적용하는 두 가지 방법 ══
+//
+// ⭐ **올리기와 내려받기는 목적이 달라서 규칙도 달라야 한다**(2026-08-15에 갈랐다):
+//
+//   importAll(합치기) … **올리기**가 저장 직전에 쓴다. 다른 기기에만 있는 것을 안 지우려는
+//     것이 목적이므로 **내 값이 이긴다.** 여기서 클라우드 값이 이기게 하면, 올리기를 누르는
+//     순간 방금 내가 고친 것이 클라우드의 옛 값으로 되돌아간 뒤 그게 저장된다 — 내 변경이
+//     "올리기" 때문에 사라진다.
+//   replaceAll(교체) … **내려받기**가 쓴다. 이 기기를 클라우드 상태 그대로 만든다.
+//     **클라우드 값이 이기고, 클라우드에 없는 것은 지운다.**
+//
+// ⚠️ 시각 기록이 없으므로 **마지막에 올린 기기가 이긴다.** 내려받기는 "이 기기를 클라우드에
+//  맞추는 것"이지 "더 새 것을 고르는 것"이 아니다. 양쪽에서 번갈아 고치려면 필드별 시각이
+//  필요하다(→ ROADMAP의 activeAt·tombstone). **실제로 아플 때** 붙인다.
+//
+// 백업 한 장을 검사해 쓸 수 있는 모양으로 돌려준다. importAll·replaceAll이 같이 쓴다.
+// 내용이 손상됐어도 읽을 수 있는 부분만 읽는다 — 모양이 틀린 항목은 조용히 건너뛴다.
+function readPayload(payload) {
   if (!isObj(payload) || !isObj(payload.data)) throw new Error("백업 데이터 모양이 아니야 (data 없음)");
   if (payload.version !== EXPORT_VERSION) {
     throw new Error(`모르는 백업 버전이야 (${payload.version ?? "표기 없음"})`);
   }
   const d = payload.data;
+  return {
+    inChannels: Array.isArray(d[KEYS.channels]) ? d[KEYS.channels] : [],
+    inWatched: isObj(d[KEYS.watched]) ? d[KEYS.watched] : {},
+    inPool: isObj(d[KEYS.pool]) ? d[KEYS.pool] : {},
+    inPlaylist: typeof d[KEYS.playlistId] === "string" ? d[KEYS.playlistId] : "",
+  };
+}
 
-  // 내용이 손상됐어도 읽을 수 있는 부분만 읽는다. 모양이 틀린 항목은 조용히 건너뛴다.
-  const inChannels = Array.isArray(d[KEYS.channels]) ? d[KEYS.channels] : [];
-  const inWatched = isObj(d[KEYS.watched]) ? d[KEYS.watched] : {};
-  const inPool = isObj(d[KEYS.pool]) ? d[KEYS.pool] : {};
-  const inPlaylist = typeof d[KEYS.playlistId] === "string" ? d[KEYS.playlistId] : "";
+// 저장된 채널 한 줄을 세운다. 받아온 값이 손상돼 있어도 모양을 보장한다.
+// `active`는 **false일 때만** 싣는다 — "필드 없음 = 켜짐" 규약을 한 갈래로 두려고.
+function channelFrom(c) {
+  const ch = { topic: c.topic || "내 채널", name: c.name || c.channelId, channelId: c.channelId };
+  if (c.active === false) ch.active = false;
+  return ch;
+}
+
+// 이 기기를 백업 그대로 만든다. 합치지 않는다 — **클라우드에 없는 것은 지운다.**
+// ⚠️ 되돌릴 수 없다. 부르는 쪽이 **무엇이 얼마나 줄어드는지 보여주고 확인을 받아야 한다.**
+// `channelCache`는 건드리지 않는다 — 채널ID로 찾는 캐시라 지워진 채널 몫은 아무도 안 읽고,
+//  남겨두면 다시 켰을 때 즉시 그려진다(Worker가 언제든 다시 만들어주는 것이기도 하다).
+export function replaceAll(payload) {
+  const { inChannels, inWatched, inPool, inPlaylist } = readPayload(payload);
+
+  const channels = [];
+  for (const c of inChannels) {
+    if (!isObj(c) || !c.channelId) continue;
+    channels.push(channelFrom(c));
+  }
+
+  const watched = {};
+  for (const [id, at] of Object.entries(inWatched)) {
+    const t = Number(at);
+    if (Number.isFinite(t)) watched[id] = t;
+  }
+
+  const pool = {};
+  for (const [id, v] of Object.entries(inPool)) {
+    if (isObj(v)) pool[id] = v;
+  }
+
+  saveChannels(channels);
+  saveWatched(watched); // 상한(WATCHED_MAX) 적용도 여기서 같이 걸린다
+  savePool(pool);
+  savePlaylistId(inPlaylist); // 클라우드가 비어 있으면 이 기기도 비운다("그대로 만든다"이므로)
+
+  return { channels: channels.length, watched: Object.keys(watched).length, pool: Object.keys(pool).length };
+}
+
+export function importAll(payload) {
+  const { inChannels, inWatched, inPool, inPlaylist } = readPayload(payload);
 
   const channels = loadChannels();
   const watched = loadWatched();
@@ -166,16 +217,7 @@ export function importAll(payload) {
   const have = new Set(channels.map((c) => c.channelId));
   for (const c of inChannels) {
     if (!isObj(c) || !c.channelId || have.has(c.channelId)) continue;
-    const ch = {
-      topic: c.topic || "내 채널",
-      name: c.name || c.channelId,
-      channelId: c.channelId,
-    };
-    // ⭐ 선별(active)도 같이 옮긴다. 안 옮기면 **새 기기에서 복원할 때 319개가 전부 켜진 채로**
-    //    살아나 골라둔 것이 통째로 날아간다(2026-08-15에 실측으로 확인).
-    //    `false`일 때만 싣는 이유: "필드 없음 = 켜짐" 규약을 그대로 두려고. 데이터도 안 늘어난다.
-    if (c.active === false) ch.active = false;
-    channels.push(ch);
+    channels.push(channelFrom(c));
     have.add(c.channelId);
     added.channels++;
   }
