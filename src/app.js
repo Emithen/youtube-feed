@@ -19,10 +19,10 @@
 // ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
 // (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 네 줄도 같이.)
 // ⚠️ drive.js도 youtube.js를 import한다 — **그쪽 ?v= 도 같은 값이어야** 모듈이 하나로 유지된다.
-import * as worker from "./worker.js?v=23";
-import * as store from "./storage.js?v=23";
-import * as yt from "./youtube.js?v=23";
-import * as drive from "./drive.js?v=23";
+import * as worker from "./worker.js?v=24";
+import * as store from "./storage.js?v=24";
+import * as yt from "./youtube.js?v=24";
+import * as drive from "./drive.js?v=24";
 
 // 바깥과 닿는 곳이 둘로 갈린다:
 //  worker.js  … 채널 최신 영상(RSS). 로그인과 무관하게 늘 동작한다.
@@ -542,8 +542,18 @@ function wireAuth() {
 
   subsBtn.addEventListener("click", importSubscriptions);
 
-  // 이미 동의한 적 있으면 창 없이 조용히 받아온다. 실패해도 아무 말 안 한다(로그인은 선택이니까).
-  yt.signIn({ silent: true }).catch(() => {});
+  // 저장된 토큰이 아직 살아 있으면 이 시점에 이미 로그인 상태다(youtube.js가 열 때 되살린다).
+  // 화면은 그 상태로 시작해야 하는데, onAuthChange는 **바뀔 때만** 부르므로 여기서 한 번 맞춘다.
+  if (yt.isSignedIn()) {
+    btn.textContent = "로그아웃";
+    subsBtn.hidden = false;
+    if (subsHint) subsHint.hidden = true;
+    status.textContent = "로그인됨 — 내 구독·재생목록을 직접 읽어요";
+  }
+
+  // ⚠️ 예전엔 여기서 `yt.signIn({ silent: true })`를 무조건 한 번 시도했다.
+  //    silent는 동의 화면만 건너뛸 뿐 **팝업 창은 연다** → 새로고침마다 구글 창이 뜨거나
+  //    팝업 차단에 막혔다. 이제 자동 시도는 없다. 토큰이 없으면 **버튼을 누를 때** 받는다.
 }
 
 // 구독 채널 → 내 채널 목록에 **후보로** 담는다.

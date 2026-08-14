@@ -11,7 +11,13 @@
 //    → watchme 재생목록 우회는 로그인 뒤에도 그대로 유지한다.
 //
 // 토큰은 1시간짜리이고 refresh token이 없다(정적 사이트의 대가).
-//  localStorage에 넣지 않고 **메모리에만** 둔다 — 페이지를 열 때 조용히 재발급받는 편이 안전하다.
+//
+// ⚠️ **2026-08-15에 뒤집었다.** 원래는 "메모리에만 두고 페이지를 열 때 조용히 재발급받는 편이
+//  안전하다"였는데, **그 전제가 틀렸다.** GIS의 `prompt: ""`(silent)는 동의 화면만 건너뛸 뿐
+//  **팝업 창은 그대로 연다.** 그래서 새로고침할 때마다 구글 창이 뜨거나 팝업 차단에 막혔다
+//  (콘솔에 `Failed to open popup window`가 쌓였다). 조용한 재발급이 공짜가 아니었던 것.
+//  → 토큰을 localStorage에 두고 새로고침 너머로 살린다. **열 때 자동 로그인은 하지 않는다.**
+//  대가: 토큰이 디스크에 남는다. 1시간 뒤 만료되고, 로그아웃하면 지운다.
 
 // ⚠️ 여기에 Google Cloud Console에서 만든 OAuth 클라이언트 ID를 붙여넣는다.
 //  클라이언트 "시크릿"은 쓰지 않는다. 클라이언트 ID는 비밀이 아니라서 공개 저장소에 있어도 된다
@@ -37,6 +43,41 @@ let expiresAt = 0;
 let client = null;
 
 export const isSignedIn = () => !!token && Date.now() < expiresAt;
+
+// ── 토큰 보관 (localStorage) ──
+// ⚠️ 이 키만 storage.js 밖에 있다. 토큰은 **앱 데이터가 아니라 세션**이고,
+//    무엇보다 `exportAll`에 절대 실리면 안 되기 때문이다(드라이브에 남의 손이 닿는 곳으로 간다).
+//    storage.js의 KEYS 주석에도 이 예외를 적어뒀다.
+const TOKEN_KEY = "authToken";
+
+// localStorage는 사용자가 손댈 수 있는 곳이라, 깨진 값이 있어도 앱이 죽지 않게 감싼다.
+function saveToken() {
+  try {
+    localStorage.setItem(TOKEN_KEY, JSON.stringify({ token, expiresAt }));
+  } catch {}
+}
+
+function clearToken() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {}
+}
+
+// 모듈이 로드될 때 한 번. 아직 살아 있는 토큰만 되살리고, 만료된 것은 지운다.
+// (여기서 notify는 안 한다 — 아직 아무도 안 듣고 있고, wireAuth가 isSignedIn()으로 첫 상태를 읽는다)
+(function restoreToken() {
+  try {
+    const v = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
+    if (v && typeof v.token === "string" && Date.now() < v.expiresAt) {
+      token = v.token;
+      expiresAt = v.expiresAt;
+    } else if (v) {
+      clearToken();
+    }
+  } catch {
+    clearToken();
+  }
+})();
 
 // 로그인 상태가 바뀌면 화면이 알아야 한다 (버튼 문구·구독 버튼 노출)
 const listeners = new Set();
@@ -75,6 +116,7 @@ export async function signIn({ silent = false } = {}) {
       token = resp.access_token;
       // 만료 1분 전에 만료된 것으로 친다 (호출 중간에 끊기지 않게)
       expiresAt = Date.now() + (Number(resp.expires_in) || 3600) * 1000 - 60_000;
+      saveToken();
       notify();
       resolve(true);
     };
@@ -89,6 +131,7 @@ export function signOut() {
   }
   token = null;
   expiresAt = 0;
+  clearToken();
   notify();
 }
 
@@ -109,9 +152,11 @@ export async function authedFetch(url, init = {}) {
     headers: { Authorization: `Bearer ${token}`, ...(init.headers || {}) },
   });
   if (res.status === 401) {
-    // 토큰이 죽었다 → 다음 호출 전에 다시 받도록 비운다
+    // 토큰이 죽었다 → 다음 호출 전에 다시 받도록 비운다. 저장된 것도 같이 지운다
+    // (안 지우면 새로고침할 때 죽은 토큰이 되살아나 "로그인됨"으로 보인다)
     token = null;
     expiresAt = 0;
+    clearToken();
     notify();
     const err = new Error("로그인이 만료됐어. 다시 로그인해줘");
     err.needsAuth = true;

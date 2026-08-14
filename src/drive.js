@@ -21,7 +21,7 @@
 // ⚠️ ?v= 는 app.js가 youtube.js를 부를 때와 **글자 그대로 같아야** 한다.
 //    쿼리가 다르면 브라우저가 **다른 모듈로 취급해 두 번 로드**하고, 그러면 토큰을 쥔
 //    변수가 둘이 되어 "로그인했는데 로그인이 필요해"가 뜬다. 버전 올릴 땐 항상 함께.
-import { authedFetch } from "./youtube.js?v=23";
+import { authedFetch } from "./youtube.js?v=24";
 
 const FILES = "https://www.googleapis.com/drive/v3/files";
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
