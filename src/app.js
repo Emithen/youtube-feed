@@ -19,10 +19,10 @@
 // ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
 // (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 네 줄도 같이.)
 // ⚠️ drive.js도 youtube.js를 import한다 — **그쪽 ?v= 도 같은 값이어야** 모듈이 하나로 유지된다.
-import * as worker from "./worker.js?v=22";
-import * as store from "./storage.js?v=22";
-import * as yt from "./youtube.js?v=22";
-import * as drive from "./drive.js?v=22";
+import * as worker from "./worker.js?v=23";
+import * as store from "./storage.js?v=23";
+import * as yt from "./youtube.js?v=23";
+import * as drive from "./drive.js?v=23";
 
 // 바깥과 닿는 곳이 둘로 갈린다:
 //  worker.js  … 채널 최신 영상(RSS). 로그인과 무관하게 늘 동작한다.
@@ -594,9 +594,7 @@ function countsOf(data) {
   return `채널 ${n(data[store.KEYS.channels])} · 본 영상 ${n(data[store.KEYS.watched])} · 풀 ${n(data[store.KEYS.pool])}`;
 }
 
-const countsAdded = (a) => `채널 +${a.channels} · 본 영상 +${a.watched} · 풀 +${a.pool}`;
-
-// 교체하면 무엇이 얼마나 달라지는지. **줄어드는 쪽에만** 부호를 붙인다 —
+// 덮어쓰면 무엇이 얼마나 달라지는지. **줄어드는 쪽에만** 부호를 붙인다 —
 // 지워지는 것이 이 확인창의 유일한 목적이라, 늘어나는 숫자가 눈을 끌면 안 된다.
 function countsChange(before, after) {
   const n = (v) => (Array.isArray(v) ? v.length : Object.keys(v || {}).length);
@@ -624,14 +622,22 @@ function showImported() {
 }
 
 // ══════════════════════ 드라이브 동기화 (국면 B) ══════════════════════
-// 백업 파일이 하던 일을 그대로 드라이브가 한다. **바뀌는 건 저장 위치뿐**이라
-// exportAll/importAll을 그대로 쓴다 — 여기서 새로 만든 규칙은 하나도 없다.
-// (2026-08-07에 파일 쪽을 지웠고, 그때도 이 두 함수는 손대지 않았다. 계약을 밖에 둔 값.)
+// 백업 파일이 하던 일을 그대로 드라이브가 한다. **바뀌는 건 저장 위치뿐**이다.
+// (2026-08-07에 파일 쪽을 지웠고, 그때도 exportAll은 손대지 않았다. 계약을 밖에 둔 값.)
 //
-// ⭐ 올리기가 **덮어쓰기가 아니라 합치기**인 이유:
-//   파일 통째로 쓰는 방식이라 그냥 올리면 다른 기기가 그 사이에 담아둔 게 사라진다.
-//   그래서 "내려받아 합친 뒤 올린다". importAll의 규칙(기존 것이 이긴다 / 본 영상은
-//   이른 시각을 남긴다)이 합집합을 보장하므로 **어느 기기에서 눌러도 데이터가 줄지 않는다.**
+// ⭐ **두 버튼은 방향만 다른 같은 동작이다**(2026-08-15에 대칭으로 바꿨다):
+//     올리기   … 내 기기 → 드라이브를 **덮어쓴다**
+//     내려받기 … 드라이브 → 내 기기를 **덮어쓴다**
+//   누른 쪽이 통째로 이긴다. 규칙이 한 줄이라 "지금 뭐가 어떻게 될까"를 안 헷갈린다.
+//
+// 왜 합치기를 그만뒀나: 올리기가 "내려받아 합친 뒤 올린다"였을 때는 **아무것도 지울 수 없었다.**
+//   내가 지운 채널이 클라우드에서 다시 딸려와 되살아났고, 그게 그대로 저장돼 클라우드에서도
+//   영영 안 없어졌다. 데이터가 줄지 않는 건 안전했지만 **선별이 이 앱의 중심이 된 뒤로는
+//   "줄이는 것"이 곧 기능**이라, 줄일 수 없는 동기화는 쓸모가 없었다.
+//
+// ⚠️ 대가: 누르는 쪽이 반대편을 지운다. 그래서 **양쪽 다 확인창**을 거치고,
+//   무엇이 몇 개 사라지는지 숫자로 보여준 뒤에만 진행한다.
+// ⚠️ 시각 기록이 없어 **마지막에 누른 쪽이 이긴다.** 어느 쪽이 더 새 것인지는 앱이 모른다.
 
 function wireDrive() {
   const upBtn = document.getElementById("driveUpBtn");
@@ -661,17 +667,24 @@ function wireDrive() {
   };
 
   upBtn.addEventListener("click", () =>
-    run("드라이브와 맞추는 중…", async () => {
-      const remote = await drive.load();
-      let pulled = "";
-      if (remote) {
-        const added = store.importAll(remote.payload); // 합치기(덮어쓰기 아님)
-        showImported();
-        pulled = ` (드라이브에서 받아온 것: ${countsAdded(added)})`;
-      }
+    run("드라이브를 확인하는 중…", async () => {
       const payload = store.exportAll();
+      // 읽는 이유는 합치려는 게 아니라 **지금 드라이브에 뭐가 있는지 세어 보여주려는 것**이다.
+      // 드라이브가 비어 있으면(첫 올리기) 사라질 게 없으니 확인창도 없다.
+      const remote = await drive.load();
+      if (remote) {
+        const when = new Date(remote.modifiedTime).toLocaleString();
+        if (!confirm(
+          "이 기기 내용으로 드라이브를 덮어씁니다.\n" +
+          "드라이브에만 있는 것은 사라집니다.\n\n" +
+          countsChange(remote.payload?.data || {}, payload.data) +
+          `\n\n드라이브 저장 시각: ${when}\n\n계속할까요?`
+        )) {
+          return "취소했어 — 아무것도 안 바뀌었어.";
+        }
+      }
       await drive.save(payload);
-      return `올렸어 — ${countsOf(payload.data)}${pulled}`;
+      return `올렸어 — ${countsOf(payload.data)}`;
     })
   );
 

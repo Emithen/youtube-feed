@@ -3,7 +3,7 @@
 // 왜 이걸로 정했나 (2026-08-04, ROADMAP 국면 B):
 //  이미 붙어 있는 OAuth에 스코프 한 줄만 더하면 되고, **새 벤더도 새 서버도 없다.**
 //  결정적인 이유는 "일이 적어서"가 아니라 **재사용**이다 — storage.js의
-//  exportAll()/importAll()이 이미 "JSON 한 장"을 주고받는 모양이라,
+//  exportAll()/replaceAll()이 이미 "JSON 한 장"을 주고받는 모양이라,
 //  파일로 저장하던 것을 그대로 드라이브에 올리면 끝난다. `파일 ↔ 드라이브`만 바뀐다.
 //
 // appDataFolder가 뭔가:
@@ -21,7 +21,7 @@
 // ⚠️ ?v= 는 app.js가 youtube.js를 부를 때와 **글자 그대로 같아야** 한다.
 //    쿼리가 다르면 브라우저가 **다른 모듈로 취급해 두 번 로드**하고, 그러면 토큰을 쥔
 //    변수가 둘이 되어 "로그인했는데 로그인이 필요해"가 뜬다. 버전 올릴 땐 항상 함께.
-import { authedFetch } from "./youtube.js?v=22";
+import { authedFetch } from "./youtube.js?v=23";
 
 const FILES = "https://www.googleapis.com/drive/v3/files";
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
