@@ -135,22 +135,23 @@ export function exportAll() {
   };
 }
 
-// ══ 받아온 백업을 이 기기에 적용하는 두 가지 방법 ══
+// ══ 받아온 백업을 이 기기에 적용한다 ══
 //
-// ⭐ **올리기와 내려받기는 목적이 달라서 규칙도 달라야 한다**(2026-08-15에 갈랐다):
+// ⭐ **덮어쓰기 하나뿐이다**(2026-08-15). 동기화는 "누른 쪽이 통째로 이긴다"로 통일했다:
+//     올리기   … exportAll() 을 그대로 드라이브에 쓴다 (app.js)
+//     내려받기 … replaceAll() 로 이 기기를 드라이브 그대로 만든다
 //
-//   importAll(합치기) … **올리기**가 저장 직전에 쓴다. 다른 기기에만 있는 것을 안 지우려는
-//     것이 목적이므로 **내 값이 이긴다.** 여기서 클라우드 값이 이기게 하면, 올리기를 누르는
-//     순간 방금 내가 고친 것이 클라우드의 옛 값으로 되돌아간 뒤 그게 저장된다 — 내 변경이
-//     "올리기" 때문에 사라진다.
-//   replaceAll(교체) … **내려받기**가 쓴다. 이 기기를 클라우드 상태 그대로 만든다.
-//     **클라우드 값이 이기고, 클라우드에 없는 것은 지운다.**
+// 합치기(importAll)가 있었으나 2026-08-15에 지웠다 — git 이력에 있다.
+// ⚠️ **지운 이유를 남겨둔다(같은 걸 다시 만들지 않으려고):** 합치기는 데이터가 절대 줄지
+//  않아 안전했지만, 바로 그래서 **아무것도 지울 수 없었다.** 지운 채널이 클라우드에서
+//  다시 딸려와 되살아나고, 그게 저장돼 클라우드에서도 영영 안 없어졌다.
+//  선별(active)이 이 앱의 중심이 된 뒤로는 **"줄이는 것"이 곧 기능**이라, 줄일 수 없는
+//  동기화는 쓸모가 없었다. 안전한 쪽이 늘 옳은 게 아니라 **무엇이 기능인지가 정한다.**
 //
-// ⚠️ 시각 기록이 없으므로 **마지막에 올린 기기가 이긴다.** 내려받기는 "이 기기를 클라우드에
-//  맞추는 것"이지 "더 새 것을 고르는 것"이 아니다. 양쪽에서 번갈아 고치려면 필드별 시각이
-//  필요하다(→ ROADMAP의 activeAt·tombstone). **실제로 아플 때** 붙인다.
+// ⚠️ 시각 기록이 없으므로 **마지막에 누른 쪽이 이긴다.** 어느 쪽이 더 새 것인지 앱은 모른다.
+//  양쪽에서 번갈아 고치려면 필드별 시각이 필요하다(→ ROADMAP의 activeAt·tombstone).
 //
-// 백업 한 장을 검사해 쓸 수 있는 모양으로 돌려준다. importAll·replaceAll이 같이 쓴다.
+// 백업 한 장을 검사해 쓸 수 있는 모양으로 돌려준다.
 // 내용이 손상됐어도 읽을 수 있는 부분만 읽는다 — 모양이 틀린 항목은 조용히 건너뛴다.
 function readPayload(payload) {
   if (!isObj(payload) || !isObj(payload.data)) throw new Error("백업 데이터 모양이 아니야 (data 없음)");
@@ -206,45 +207,3 @@ export function replaceAll(payload) {
   return { channels: channels.length, watched: Object.keys(watched).length, pool: Object.keys(pool).length };
 }
 
-export function importAll(payload) {
-  const { inChannels, inWatched, inPool, inPlaylist } = readPayload(payload);
-
-  const channels = loadChannels();
-  const watched = loadWatched();
-  const pool = loadPool();
-  const added = { channels: 0, watched: 0, pool: 0 };
-
-  const have = new Set(channels.map((c) => c.channelId));
-  for (const c of inChannels) {
-    if (!isObj(c) || !c.channelId || have.has(c.channelId)) continue;
-    channels.push(channelFrom(c));
-    have.add(c.channelId);
-    added.channels++;
-  }
-
-  for (const [id, at] of Object.entries(inWatched)) {
-    const t = Number(at);
-    if (!Number.isFinite(t)) continue;
-    if (!hasWatched(watched, id)) {
-      watched[id] = t;
-      added.watched++;
-    } else if (t < watched[id]) {
-      watched[id] = t; // 같은 영상이면 **먼저 본 시각**이 사실에 가깝다
-    }
-  }
-
-  for (const [id, v] of Object.entries(inPool)) {
-    if (!isObj(v) || pool[id]) continue; // 이미 있으면 그대로 — addedAt을 지킨다
-    pool[id] = v;
-    added.pool++;
-  }
-
-  saveChannels(channels);
-  saveWatched(watched); // 상한(WATCHED_MAX) 적용도 여기서 같이 걸린다
-  savePool(pool);
-  if (inPlaylist && !loadPlaylistId()) {
-    savePlaylistId(inPlaylist); // 비어 있을 때만 채운다 (이 기기 설정이 우선)
-  }
-
-  return added;
-}
