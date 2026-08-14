@@ -19,10 +19,10 @@
 // ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
 // (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 네 줄도 같이.)
 // ⚠️ drive.js도 youtube.js를 import한다 — **그쪽 ?v= 도 같은 값이어야** 모듈이 하나로 유지된다.
-import * as worker from "./worker.js?v=21";
-import * as store from "./storage.js?v=21";
-import * as yt from "./youtube.js?v=21";
-import * as drive from "./drive.js?v=21";
+import * as worker from "./worker.js?v=22";
+import * as store from "./storage.js?v=22";
+import * as yt from "./youtube.js?v=22";
+import * as drive from "./drive.js?v=22";
 
 // 바깥과 닿는 곳이 둘로 갈린다:
 //  worker.js  … 채널 최신 영상(RSS). 로그인과 무관하게 늘 동작한다.
@@ -596,6 +596,22 @@ function countsOf(data) {
 
 const countsAdded = (a) => `채널 +${a.channels} · 본 영상 +${a.watched} · 풀 +${a.pool}`;
 
+// 교체하면 무엇이 얼마나 달라지는지. **줄어드는 쪽에만** 부호를 붙인다 —
+// 지워지는 것이 이 확인창의 유일한 목적이라, 늘어나는 숫자가 눈을 끌면 안 된다.
+function countsChange(before, after) {
+  const n = (v) => (Array.isArray(v) ? v.length : Object.keys(v || {}).length);
+  const line = (label, key) => {
+    const a = n(before[key]);
+    const b = n(after[key]);
+    return `${label} ${a} → ${b}` + (b < a ? `   (${b - a}개 사라짐)` : "");
+  };
+  return [
+    line("채널", store.KEYS.channels),
+    line("본 영상", store.KEYS.watched),
+    line("나중에 볼 풀", store.KEYS.pool),
+  ].join("\n");
+}
+
 // 받아온 것이 화면에 바로 보이게. 안 그러면 새로고침해야 해서 성공했는지 알 수 없다.
 // ⚠️ 다른 화면(#/feed·#/random)의 요소를 건드린다 — 숨어 있어도 DOM에 있으니 그대로 동작한다.
 function showImported() {
@@ -663,10 +679,25 @@ function wireDrive() {
     run("드라이브에서 읽는 중…", async () => {
       const remote = await drive.load();
       if (!remote) return "드라이브에 아직 없어. 먼저 ☁️ 올리기를 눌러줘.";
-      const added = store.importAll(remote.payload);
-      showImported();
+
+      // ⚠️ 내려받기는 **합치기가 아니라 교체**다(2026-08-15부터) — 이 기기에만 있던 것이
+      //    사라진다. 되돌릴 수 없으므로 **줄어드는 숫자를 눈으로 보여주고** 확인을 받는다.
+      //    숫자를 안 보여주면 "받았어"만 뜨고 316개가 조용히 사라질 수 있다.
       const when = new Date(remote.modifiedTime).toLocaleString();
-      return `받았어 — ${countsAdded(added)} (드라이브 저장 시각: ${when})`;
+      const before = store.exportAll().data;
+      const after = remote.payload?.data || {};
+      if (!confirm(
+        "드라이브 내용으로 이 기기를 덮어씁니다.\n" +
+        "이 기기에만 있는 것은 사라집니다.\n\n" +
+        countsChange(before, after) +
+        `\n\n드라이브 저장 시각: ${when}\n\n계속할까요?`
+      )) {
+        return "취소했어 — 아무것도 안 바뀌었어.";
+      }
+
+      store.replaceAll(remote.payload);
+      showImported();
+      return `받았어 — ${countsOf(remote.payload.data)} (드라이브 저장 시각: ${when})`;
     })
   );
 }
