@@ -1,4 +1,4 @@
-// app.js — 내가 추가한 채널(localStorage)의 최신 영상을 그린다.
+﻿// app.js — 내가 추가한 채널(localStorage)의 최신 영상을 그린다.
 //
 // 2026-07-28: 추천 채널(data.json) 렌더를 제거했고, 2026-07-31에 파일(collect.py·data.json)도 지웠다.
 //  지금은 화면이 "내 채널" 하나뿐이다. 되살릴 일이 생기면 git 이력에서 꺼내온다:
@@ -19,10 +19,10 @@
 // ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
 // (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 네 줄도 같이.)
 // ⚠️ drive.js도 youtube.js를 import한다 — **그쪽 ?v= 도 같은 값이어야** 모듈이 하나로 유지된다.
-import * as worker from "./worker.js?v=19";
-import * as store from "./storage.js?v=19";
-import * as yt from "./youtube.js?v=19";
-import * as drive from "./drive.js?v=19";
+import * as worker from "./worker.js?v=20";
+import * as store from "./storage.js?v=20";
+import * as yt from "./youtube.js?v=20";
+import * as drive from "./drive.js?v=20";
 
 // 바깥과 닿는 곳이 둘로 갈린다:
 //  worker.js  … 채널 최신 영상(RSS). 로그인과 무관하게 늘 동작한다.
@@ -140,28 +140,131 @@ function groupLabel(text) {
 }
 
 // ── 아직 채널이 없을 때 안내 (추천 채널을 없앤 뒤로 첫 화면이 비기 때문) ──
-function emptyStateEl() {
+function emptyStateEl(text) {
   const p = document.createElement("p");
   p.className = "hint";
-  p.textContent = "아직 추가한 채널이 없어요. 위에서 채널 링크나 @핸들을 넣어 추가해보세요.";
+  p.textContent =
+    text || "아직 추가한 채널이 없어요. 위에서 채널 링크나 @핸들을 넣어 추가해보세요.";
   return p;
 }
 
+// ══════════════════════ ① 채널 관리 — 무엇을 볼지 고른다 ══════════════════════
+// 피드와 결정적으로 다른 점: **Worker를 한 번도 안 부른다.** 수백 개를 훑는 화면이라
+// 영상을 같이 그리면 열자마자 채널 수만큼 요청이 나간다. 여기는 이름만 그린다.
+
+function channelRowEl(ch) {
+  const row = document.createElement("div");
+  row.className = "ch";
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "toggle";
+
+  // 색만으로 구분하지 않는다 — 기호(☑/☐)로도 읽히게 (본 영상 ✓/○ 와 같은 규칙)
+  const paint = (on) => {
+    row.classList.toggle("off", !on);
+    toggle.textContent = on ? "☑" : "☐";
+    toggle.title = on ? "피드에 나옴 — 눌러서 빼기" : "피드에서 빠짐 — 눌러서 넣기";
+    toggle.setAttribute("aria-label", `${ch.name}: ${toggle.title}`);
+    toggle.setAttribute("aria-pressed", String(on));
+  };
+  paint(store.isActive(ch));
+
+  toggle.addEventListener("click", () => {
+    ch.active = !store.isActive(ch); // ch는 이 줄이 들고 있는 사본 — 같이 고쳐야 연속 클릭이 맞다
+    store.setActive(ch.channelId, ch.active);
+    paint(ch.active);
+    afterChannelChange();
+  });
+  row.appendChild(toggle);
+
+  const label = document.createElement("span");
+  label.className = "name";
+  label.textContent = `[${ch.topic}] ${ch.name}`;
+  row.appendChild(label);
+
+  // ⭐ 삭제가 여기 있어야 하는 이유: 꺼진 채널은 피드에서 사라지므로,
+  //    피드에 있던 삭제 버튼으로는 **영영 지울 수 없게 된다.**
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "del";
+  del.textContent = "삭제";
+  del.addEventListener("click", () => {
+    store.saveChannels(store.loadChannels().filter((c) => c.channelId !== ch.channelId));
+    row.remove();
+    afterChannelChange();
+    updateChannelCount();
+  });
+  row.appendChild(del);
+
+  return row;
+}
+
+// 켜진 개수를 세어 보여준다 — 수백 개일 때 "지금 몇 개가 피드에 나오나"가 안 보이면 못 고른다.
+function updateChannelCount() {
+  const count = document.getElementById("chCount");
+  if (!count) return;
+  const list = store.loadChannels();
+  count.textContent = list.length
+    ? `${list.length}개 중 ${list.filter(store.isActive).length}개 켜짐`
+    : "";
+}
+
+function renderChannelList() {
+  const box = document.getElementById("chList");
+  if (!box) return;
+  const list = store.loadChannels();
+  box.replaceChildren();
+  updateChannelCount();
+
+  if (list.length === 0) {
+    box.appendChild(emptyStateEl());
+    return;
+  }
+  for (const ch of list) box.appendChild(channelRowEl(ch));
+}
+
+// 선별이 바뀌면 피드는 낡았다 → 다음에 피드로 갈 때 다시 그리게 한다.
+// 이게 없으면 켜고 끈 게 새로고침 전까지 반영되지 않아 **아무 일도 안 일어난 것처럼 보인다.**
+function afterChannelChange() {
+  feedRendered = false;
+  updateChannelCount();
+}
+
+function wireChannels() {
+  const bulk = (on) => () => {
+    store.setAllActive(on);
+    renderChannelList();
+    afterChannelChange();
+  };
+  document.getElementById("allOff")?.addEventListener("click", bulk(false));
+  document.getElementById("allOn")?.addEventListener("click", bulk(true));
+}
+
 // ── 내 채널: localStorage 목록 → Worker로 최신 영상 (캐시 먼저 → 백그라운드 갱신) ──
-// 한 번이라도 그렸는지. 피드 화면에 처음 들어올 때만 그리려고 둔다(아래 showScreen).
-// 여기서 세우는 이유: 채널 추가·구독 가져오기·백업 복원도 이 함수를 부르는데,
-// 그때 이미 최신이 그려지므로 나중에 피드로 옮겨갈 때 **또 요청을 낼 이유가 없다.**
+// 피드가 지금 화면과 맞는지. 피드 렌더는 **켜진 채널 수만큼 Worker 요청**을 내는
+// 유일하게 비싼 초기화라, 피드를 볼 때 한 번만 그린다(아래 showScreen).
+// ⚠️ 2026-08-15 이전엔 채널 추가·구독 가져오기·복원이 **곧바로 피드를 그렸다.**
+//    그 화면들에 있으면서 피드를 그리면 보이지도 않는 화면 때문에 요청이 나간다 →
+//    지금은 전부 이 깃발을 내리기만 하고, 실제로 그리는 건 피드로 갈 때다.
 let feedRendered = false;
 
 function renderMyChannels() {
   const box = document.getElementById("my");
   if (!box) return;
   feedRendered = true;
-  const list = store.loadChannels();
+  const all = store.loadChannels();
+  const list = all.filter(store.isActive); // ⭐ 끈 채널은 요청조차 안 나간다
   const cache = store.loadCache();
   box.replaceChildren();
   if (list.length === 0) {
-    box.appendChild(emptyStateEl());
+    // 채널이 없는 것과 **전부 꺼둔 것**은 다르다. 같은 문구를 쓰면
+    // 319개를 끄고 온 사람이 "데이터가 날아갔나?" 하게 된다.
+    box.appendChild(
+      all.length === 0
+        ? emptyStateEl()
+        : emptyStateEl(`채널 ${all.length}개가 전부 꺼져 있어요. 📋 채널에서 볼 채널을 켜보세요.`)
+    );
     return;
   }
 
@@ -240,7 +343,10 @@ function wireForm() {
 
       form.reset();
       status.textContent = `추가됨: ${name}`;
-      renderMyChannels();
+      // 지금 보고 있는 건 📋 채널 화면이다. 여기서 피드를 그리면 **다른 채널 전부에**
+      // 요청이 나간다 — 방금 하나 추가했을 뿐인데. 목록만 고치고 피드는 갈 때 그린다.
+      renderChannelList();
+      feedRendered = false;
     } catch (err) {
       status.textContent = "실패: " + err.message;
     } finally {
@@ -440,7 +546,11 @@ function wireAuth() {
   yt.signIn({ silent: true }).catch(() => {});
 }
 
-// 구독 채널 → 내 채널 목록. 이미 있는 건 건드리지 않는다(주제·이름을 손봤을 수 있으니).
+// 구독 채널 → 내 채널 목록에 **후보로** 담는다.
+// ⭐ `active: false`로 들어온다 — "구독한 것은 곧 볼 것"이라는 전제를 버렸기 때문이다.
+//    켜진 채로 들어오면 구독 수백 개가 그대로 피드가 되고, 피드를 열 때마다
+//    그만큼 Worker 요청이 나간다. 고르는 건 📋 채널 화면에서.
+// 이미 있는 건 건드리지 않는다(주제·이름을 손봤을 수 있고, 이미 켜둔 것을 끄면 안 되니까).
 async function importSubscriptions() {
   const btn = document.getElementById("subsBtn");
   const status = document.getElementById("subsStatus");
@@ -455,16 +565,19 @@ async function importSubscriptions() {
     let added = 0;
     for (const s of subs) {
       if (have.has(s.channelId)) continue;
-      list.push({ topic: "구독", name: s.name, channelId: s.channelId });
+      list.push({ topic: "구독", name: s.name, channelId: s.channelId, active: false });
       have.add(s.channelId);
       added++;
     }
     store.saveChannels(list);
     // 빠진 이유를 셈해서 알려준다 (조용히 사라지면 왜 개수가 다른지 알 수 없다)
+    // 꺼진 채로 들어온다는 것도 같이 말한다 — 안 그러면 피드가 그대로라 실패로 보인다.
     status.textContent =
-      `구독 ${subs.length}개 중 ${added}개 추가` +
-      (subs.length - added > 0 ? ` (이미 있던 것 ${subs.length - added}개)` : "");
-    renderMyChannels();
+      `구독 ${subs.length}개 중 ${added}개 담음` +
+      (subs.length - added > 0 ? ` (이미 있던 것 ${subs.length - added}개)` : "") +
+      (added > 0 ? " — 아래에서 볼 채널을 켜세요" : "");
+    renderChannelList(); // 지금 보고 있는 건 채널 화면이다. 피드를 그리면 요청만 나간다.
+    feedRendered = false;
   } catch (e) {
     status.textContent = e.needsAuth ? "로그인이 필요해." : "실패: " + e.message;
   } finally {
@@ -486,7 +599,10 @@ const countsAdded = (a) => `채널 +${a.channels} · 본 영상 +${a.watched} ·
 // 받아온 것이 화면에 바로 보이게. 안 그러면 새로고침해야 해서 성공했는지 알 수 없다.
 // ⚠️ 다른 화면(#/feed·#/random)의 요소를 건드린다 — 숨어 있어도 DOM에 있으니 그대로 동작한다.
 function showImported() {
-  renderMyChannels();
+  // 드라이브에서 받은 채널이 꺼진 채로 올 수 있으므로 목록도 같이 고친다.
+  // 피드는 여기서 안 그린다(설정 화면에서 부르는데 채널 수만큼 요청이 나간다) → 갈 때 그린다.
+  renderChannelList();
+  feedRendered = false;
   refreshPoolCount();
   document.getElementById("plInput").value = store.loadPlaylistId();
 }
@@ -590,6 +706,10 @@ function showScreen() {
   //   랜덤을 뽑든 열자마자 전부 나갔다. (나머지 wire*는 이벤트만 붙이므로 싸다)
   if (now === "feed" && !feedRendered) renderMyChannels();
 
+  // 채널 목록은 **매번** 다시 그린다. 요청이 안 나가서 싸고(이름만 그린다),
+  // 피드에서 삭제하거나 구독을 가져온 뒤에 와도 최신이어야 한다.
+  if (now === "channels") renderChannelList();
+
   window.scrollTo(0, 0);
 }
 
@@ -600,6 +720,7 @@ wireForm();
 wirePool();
 wireAuth();
 wireDrive();
+wireChannels();
 
 window.addEventListener("hashchange", showScreen);
 showScreen();

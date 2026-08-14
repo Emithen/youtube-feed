@@ -36,6 +36,26 @@ export const saveChannels = (list) => saveJSON(KEYS.channels, list);
 export const loadCache = () => loadJSON(KEYS.cache, {});
 export const saveCache = (c) => saveJSON(KEYS.cache, c);
 
+// ── 선별: 이 채널을 피드에 그릴지 ──
+// ⭐ `active`가 **없는** 옛 데이터는 켜진 것으로 읽는다. 백업 계약과 같은 규칙(기존 필드는
+//    그대로 두고 추가만)이라, 이미 저장된 채널을 한 줄도 안 고치고 그대로 살릴 수 있다.
+//    그래서 이 기능을 켜도 첫 화면은 어제와 똑같다 — 끄기 전까지는 아무것도 안 변한다.
+export const isActive = (ch) => ch.active !== false;
+
+// 한 채널만 켜고 끈다.
+export function setActive(channelId, on) {
+  const list = loadChannels();
+  const ch = list.find((c) => c.channelId === channelId);
+  if (!ch) return;
+  ch.active = on;
+  saveChannels(list);
+}
+
+// 전부 켜기/끄기. 구독 319개를 손으로 끌 수는 없으니, 선별은 **전부 끄고 고르기**로 시작한다.
+export function setAllActive(on) {
+  saveChannels(loadChannels().map((c) => ({ ...c, active: on })));
+}
+
 // 채널 하나의 최신 결과를 캐시에 넣는다 (렌더와 폼 양쪽에서 쓰던 3줄)
 export function cacheChannel(channelId, videos) {
   const c = loadCache();
