@@ -16,6 +16,7 @@ import type { Channel, ExportData, ExportPayload, PoolVideo, Video } from "./typ
 export const KEYS = {
   channels: "myChannels", // 내가 추가한 채널 목록
   cache: "channelCache", // 채널별 최근 결과 (재방문 시 즉시 렌더용, 없어도 됨)
+  subs: "subsCache", // 구독 목록 (고를 때만 쓰는 후보. 저장이 아니라 캐시다)
   watched: "watched", // 본 영상 { 영상ID: 본 시각 }
   pool: "laterPool", // 나중에 볼 풀 { 영상ID: {...영상, addedAt, source} }
   playlistId: "playlistId", // watchme 재생목록 ID
@@ -52,6 +53,11 @@ export const saveCache = (c: Record<string, CacheEntry>) => saveJSON(KEYS.cache,
 // ⭐ `active`가 **없는** 옛 데이터는 켜진 것으로 읽는다. 백업 계약과 같은 규칙(기존 필드는
 //    그대로 두고 추가만)이라, 이미 저장된 채널을 한 줄도 안 고치고 그대로 살릴 수 있다.
 //    그래서 이 기능을 켜도 첫 화면은 어제와 똑같다 — 끄기 전까지는 아무것도 안 변한다.
+//
+// ⭐ **2026-08-17에 뜻이 하나로 정리됐다.** 그전까지 `active`는 두 가지를 겸하고 있었다:
+//     ① "구독에서 가져왔지만 아직 안 고른 후보"   ② "골랐지만 지금은 피드에서 빼기"
+//   구독 목록이 저장 대상에서 빠지면서 ①이 사라졌다. 이제 `myChannels`는 **고른 것만**
+//   담고, `active`는 ②만 뜻한다 — "내 채널인데 지금은 안 보기".
 export const isActive = (ch: Channel) => ch.active !== false;
 
 // 한 채널만 켜고 끈다.
@@ -67,6 +73,19 @@ export function setActive(channelId: string, on: boolean) {
 export function setAllActive(on: boolean) {
   saveChannels(loadChannels().map((c) => ({ ...c, active: on })));
 }
+
+// ── 구독 목록 캐시 ──
+// ⭐ **저장이 아니라 캐시다.** 구독은 구글에 있는 것이고 우리는 "고를 때 잠깐 보여줄" 뿐이다.
+//  그래서 `channelCache`와 **같은 지위**로 둔다 — localStorage에 있지만 `exportAll`에서 빠진다.
+//  기존 규칙을 한 번 더 쓰는 것이다: **다시 만들 수 있는 것은 계약에 넣지 않는다.**
+//
+//  ⚠️ 구독을 *저장*하면 두 가지가 따라온다: ⓐ 드라이브로 실려 나가고
+//   ⓑ 유튜브에서 구독을 끊어도 앱에 유령처럼 남는다. 캐시는 둘 다 없다.
+export type CachedSubs = { at: number; items: { channelId: string; name: string }[] };
+
+export const loadSubs = (): CachedSubs | null => loadJSON<CachedSubs | null>(KEYS.subs, null);
+export const saveSubs = (items: CachedSubs["items"]) =>
+  saveJSON(KEYS.subs, { at: Date.now(), items });
 
 // 채널 하나의 최신 결과를 캐시에 넣는다 (렌더와 폼 양쪽에서 쓰던 3줄)
 export function cacheChannel(channelId: string, videos: Video[]) {
@@ -133,8 +152,9 @@ export const EXPORT_VERSION = 1;
 const isObj = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 
-// channelCache는 일부러 뺀다. Worker가 언제든 다시 만들어주는 것이라 옮길 가치가 없는데
-// 크기는 제일 크다. "없어도 되는 것"은 백업하지 않는다.
+// ⚠️ `channelCache`와 `subsCache`는 **일부러 뺀다.** 둘 다 언제든 다시 만들 수 있는 것이라
+// 옮길 가치가 없는데(Worker가·구글이 다시 준다) 크기는 제일 크다.
+// → *다시 만들 수 있는 것은 계약에 넣지 않는다.*
 export function exportAll(): ExportPayload {
   return {
     version: EXPORT_VERSION,

@@ -22,6 +22,14 @@
   --color-danger: #c0392b; /* 삭제 */
   --color-danger-line: #c0392b55;
 
+  /* ⭐ `Canvas`/`CanvasText`는 **CSS 시스템 색**이다 — 브라우저가 지금 테마(라이트/다크)의
+     기본 배경·글자색을 넣어준다. `<dialog>`는 body 배경을 상속받지 않아 명시가 필요한데,
+     여기에 #fff 같은 값을 박으면 다크모드에서 흰 판이 튄다.
+     `color-scheme: light dark`를 이미 켜뒀으므로 이 둘이 알아서 갈린다 —
+     "회색은 #888+알파로 둬서 다크 오버라이드가 필요 없다"와 같은 결의 선택이다. */
+  --color-canvas: Canvas;
+  --color-canvas-ink: CanvasText;
+
   --font-sans: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
 }
 
