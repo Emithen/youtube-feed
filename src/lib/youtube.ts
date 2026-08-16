@@ -1,10 +1,10 @@
-// youtube.js — 구글 로그인(OAuth)으로 내 유튜브 데이터를 직접 읽는다.
+// youtube.ts — 구글 로그인(OAuth)으로 내 유튜브 데이터를 직접 읽는다.
 //
 // 왜 Worker를 안 거치나:
 //  Worker를 만든 이유는 ① CORS 우회 ② API 키 숨기기 였는데, OAuth 호출은 **둘 다 해당이 없다.**
 //   ① googleapis.com은 CORS를 허용한다 (유튜브 RSS와 달리)
 //   ② 토큰은 공용 비밀이 아니라 사용자 본인 것이다 — 오히려 남의 서버로 보내지 않는 편이 안전하다
-//  그래서 브라우저가 직접 부른다. worker.js의 형제이지 대체가 아니다(RSS 경로는 계속 Worker).
+//  그래서 브라우저가 직접 부른다. worker.ts의 형제이지 대체가 아니다(RSS 경로는 계속 Worker).
 //
 // ⛔ "나중에 볼"(WL)은 여기서도 못 읽는다. 2016-09-12부터 로그인한 본인에게도 빈 목록이다.
 //    (relatedPlaylists.watchLater는 "WL" 문자열만 주고 playlistItems.list는 빈 배열)
@@ -22,6 +22,33 @@
 // ⚠️ 여기에 Google Cloud Console에서 만든 OAuth 클라이언트 ID를 붙여넣는다.
 //  클라이언트 "시크릿"은 쓰지 않는다. 클라이언트 ID는 비밀이 아니라서 공개 저장소에 있어도 된다
 //  (승인된 JavaScript 원본으로 도메인이 제한되기 때문).
+import type { AppError, Video } from "./types";
+
+// ── 구글 아이덴티티 서비스(GIS)의 모양 ──
+// 스크립트를 <script>로 불러오므로 타입이 따로 안 온다. 쓰는 만큼만 여기서 선언한다.
+type TokenResponse = { access_token?: string; expires_in?: string | number; error?: string };
+type TokenClient = {
+  callback: (resp: TokenResponse) => void;
+  requestAccessToken: (opts: { prompt: string }) => void;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        oauth2?: {
+          initTokenClient: (cfg: {
+            client_id: string;
+            scope: string;
+            callback: (resp: TokenResponse) => void;
+          }) => TokenClient;
+          revoke: (token: string, done: () => void) => void;
+        };
+      };
+    };
+  }
+}
+
 export const CLIENT_ID =
   "60100393090-r2g4ml40ov9tkmjh2en99v1q3fasgafb.apps.googleusercontent.com";
 
@@ -38,16 +65,16 @@ const SCOPE = [
 const API = "https://www.googleapis.com/youtube/v3";
 const MAX_PAGES = 20; // 50개 × 20 = 최대 1000개 (Worker의 한도와 같게 맞춘다)
 
-let token = null;
+let token: string | null = null;
 let expiresAt = 0;
-let client = null;
+let client: TokenClient | null = null;
 
 export const isSignedIn = () => !!token && Date.now() < expiresAt;
 
 // ── 토큰 보관 (localStorage) ──
 // ⚠️ 이 키만 storage.js 밖에 있다. 토큰은 **앱 데이터가 아니라 세션**이고,
 //    무엇보다 `exportAll`에 절대 실리면 안 되기 때문이다(드라이브에 남의 손이 닿는 곳으로 간다).
-//    storage.js의 KEYS 주석에도 이 예외를 적어뒀다.
+//    storage.ts의 KEYS 주석에도 이 예외를 적어뒀다.
 const TOKEN_KEY = "authToken";
 
 // localStorage는 사용자가 손댈 수 있는 곳이라, 깨진 값이 있어도 앱이 죽지 않게 감싼다.
@@ -64,7 +91,7 @@ function clearToken() {
 }
 
 // 모듈이 로드될 때 한 번. 아직 살아 있는 토큰만 되살리고, 만료된 것은 지운다.
-// (여기서 notify는 안 한다 — 아직 아무도 안 듣고 있고, wireAuth가 isSignedIn()으로 첫 상태를 읽는다)
+// (여기서 notify는 안 한다 — 아직 아무도 안 듣고 있고, 화면이 isSignedIn()으로 첫 상태를 읽는다)
 (function restoreToken() {
   try {
     const v = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
@@ -80,15 +107,15 @@ function clearToken() {
 })();
 
 // 로그인 상태가 바뀌면 화면이 알아야 한다 (버튼 문구·구독 버튼 노출)
-const listeners = new Set();
-export const onAuthChange = (fn) => listeners.add(fn);
+const listeners = new Set<(on: boolean) => void>();
+export const onAuthChange = (fn: (on: boolean) => void) => listeners.add(fn);
 const notify = () => listeners.forEach((fn) => fn(isSignedIn()));
 
 // GIS(구글 아이덴티티 서비스) 스크립트는 index.html에서 비동기로 불러온다.
 // 버튼을 누른 시점에 아직 안 왔을 수 있어 잠깐 기다린다.
 async function ensureClient() {
   if (client) return client;
-  if (!CLIENT_ID) throw new Error("CLIENT_ID가 비어 있어 (src/youtube.js 맨 위에 붙여넣어줘)");
+  if (!CLIENT_ID) throw new Error("CLIENT_ID가 비어 있어 (src/lib/youtube.ts 맨 위에 붙여넣어줘)");
 
   for (let i = 0; i < 40 && !window.google?.accounts?.oauth2; i++) {
     await new Promise((r) => setTimeout(r, 50)); // 최대 2초
@@ -108,7 +135,7 @@ async function ensureClient() {
 export async function signIn({ silent = false } = {}) {
   const c = await ensureClient();
   return new Promise((resolve) => {
-    c.callback = (resp) => {
+    c.callback = (resp: TokenResponse) => {
       if (resp.error || !resp.access_token) {
         resolve(false);
         return;
@@ -138,12 +165,12 @@ export function signOut() {
 // ────────────────────────── 호출 ──────────────────────────
 
 // 토큰을 쥐고 있는 곳은 이 파일 하나여야 한다. 그래서 **토큰을 넘겨주는 대신 창구를 빌려준다.**
-// drive.js가 이걸 쓴다 — 호스트가 달라(googleapis.com/drive) URL을 통째로 받는다.
+// drive.ts가 이걸 쓴다 — 호스트가 달라(googleapis.com/drive) URL을 통째로 받는다.
 //  · 응답 해석은 하지 않는다: 유튜브는 늘 JSON이지만 Drive는 **파일 본문**도 돌려주기 때문.
 //  · 401(토큰 만료)만 여기서 처리한다. 모든 호출자가 똑같이 해야 하는 일이라서.
-export async function authedFetch(url, init = {}) {
+export async function authedFetch(url: string, init: RequestInit = {}) {
   if (!isSignedIn()) {
-    const err = new Error("로그인이 필요해");
+    const err: AppError = new Error("로그인이 필요해");
     err.needsAuth = true;
     throw err;
   }
@@ -158,20 +185,27 @@ export async function authedFetch(url, init = {}) {
     expiresAt = 0;
     clearToken();
     notify();
-    const err = new Error("로그인이 만료됐어. 다시 로그인해줘");
+    const err: AppError = new Error("로그인이 만료됐어. 다시 로그인해줘");
     err.needsAuth = true;
     throw err;
   }
   return res;
 }
 
-// 에러 모양은 worker.js와 맞춘다(err.notFound). 그래야 화면의 안내 코드가 그대로 쓰인다.
-async function get(path, params) {
+// 에러 모양은 worker.ts와 맞춘다(err.notFound). 그래야 화면의 안내 코드가 그대로 쓰인다.
+type ApiPage = {
+  items?: Record<string, any>[];
+  nextPageToken?: string;
+  pageInfo?: { totalResults?: number };
+  error?: { message?: string; errors?: { reason?: string }[] };
+};
+
+async function get(path: string, params: Record<string, string>): Promise<ApiPage> {
   const res = await authedFetch(`${API}${path}?` + new URLSearchParams(params));
-  const data = await res.json().catch(() => ({}));
+  const data = (await res.json().catch(() => ({}))) as ApiPage;
   if (!res.ok) {
     const reason = data?.error?.errors?.[0]?.reason || "";
-    const err = new Error(data?.error?.message || "HTTP " + res.status);
+    const err: AppError = new Error(data?.error?.message || "HTTP " + res.status);
     err.notFound = reason === "playlistNotFound" || res.status === 404;
     throw err;
   }
@@ -179,8 +213,13 @@ async function get(path, params) {
 }
 
 // 페이지를 끝까지 넘기며 모으는 공통 루프 (구독·재생목록이 같은 모양이라 하나로)
-async function pages(path, params, take, onProgress) {
-  const out = [];
+async function pages<T>(
+  path: string,
+  params: Record<string, string>,
+  take: (items: Record<string, any>[], out: T[]) => void,
+  onProgress?: (got: number, total: number) => void
+): Promise<T[]> {
+  const out: T[] = [];
   let pageToken = "";
   for (let i = 0; i < MAX_PAGES; i++) {
     const data = await get(path, pageToken ? { ...params, pageToken } : params);
@@ -194,8 +233,10 @@ async function pages(path, params, take, onProgress) {
 
 // ── 구독 목록 → 내 채널 목록에 넣을 모양 ──
 // → [{ channelId, name }]
-export function fetchSubscriptions(onProgress) {
-  return pages(
+export type Subscription = { channelId: string; name: string };
+
+export function fetchSubscriptions(onProgress?: (got: number, total: number) => void) {
+  return pages<Subscription>(
     "/subscriptions",
     { part: "snippet", mine: "true", maxResults: "50", order: "alphabetical" },
     (items, out) => {
@@ -208,11 +249,11 @@ export function fetchSubscriptions(onProgress) {
   );
 }
 
-// ── 재생목록 → worker.js의 /playlist와 **같은 모양** ──
+// ── 재생목록 → worker.ts의 /playlist와 **같은 모양** ──
 // 그래서 화면 코드는 어느 쪽에서 받았는지 몰라도 된다.
-export async function fetchPlaylist(id) {
+export async function fetchPlaylist(id: string) {
   let skipped = 0;
-  const videos = await pages(
+  const videos = await pages<Video>(
     "/playlistItems",
     { part: "snippet,contentDetails", playlistId: id, maxResults: "50" },
     (items, out) => {

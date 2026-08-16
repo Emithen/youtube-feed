@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
@@ -8,7 +8,8 @@
 
   <!-- 링크 공유 시 뜨는 미리보기 카드 (카톡·슬랙·트위터 등).
        크롤러는 상대경로를 못 읽는 곳이 많아 og:url·og:image는 절대주소로 쓴다.
-       og:image는 SVG를 지원 안 하는 곳이 많아 PNG를 쓴다 (원본: og-image.svg). -->
+       og:image는 SVG를 지원 안 하는 곳이 많아 PNG를 쓴다 (원본: public/og-image.svg).
+       ⚠️ 배포를 Vercel로 옮기면 이 두 절대주소를 새 도메인으로 바꿔야 한다. -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="최신 영상 모음">
   <meta property="og:title" content="최신 영상 모음">
@@ -24,165 +25,36 @@
   <!-- 탭 아이콘 (파일 없이 인라인 SVG로 처리) -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%234a90e2'/><path d='M40 30 L72 50 L40 70 Z' fill='white'/></svg>">
 
-  <!-- 홈 화면에 추가했을 때 앱처럼 뜨게 (원본 SVG와 만드는 법: icons/icon.svg 주석 참고).
+  <!-- 홈 화면에 추가했을 때 앱처럼 뜨게 (원본 SVG와 만드는 법: public/icons/icon.svg 주석 참고).
        ⚠️ 안드로이드와 iOS가 서로 다른 걸 본다:
           안드로이드 → manifest.json의 icons
           iOS       → manifest를 무시하고 **apple-touch-icon 하나만** 본다. 그래서 따로 건다.
        ⚠️ 서비스워커는 일부러 안 넣었다. 없어도 "홈 화면에 추가"와 아이콘은 정상 동작한다.
-          (크롬의 자동 설치 배너만 안 뜬다) 오프라인 지원은 별건이라 기대치를 만들지 않는다. -->
-  <link rel="manifest" href="manifest.json">
+          (크롬의 자동 설치 배너만 안 뜬다) 오프라인 지원은 별건이라 기대치를 만들지 않는다.
+       ⭐ 경로가 상대(icons/)에서 절대(/icons/)로 바뀌었다 — GitHub Pages는 /youtube-feed/
+          하위에 있었지만 Vercel은 도메인 루트라서. public/ 안의 것은 그대로 루트로 나간다. -->
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#4a90e2">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="영상모음">
-
-  <!-- 스타일은 src/style.css 한 장. 2026-08-05에 <style> 블록에서 떼어냈다.
-       ?v= 는 여기도 필요하다 — 캐시된 옛 CSS + 새 HTML 조합으로 화면이 깨진다. -->
-  <link rel="stylesheet" href="src/style.css?v=25">
 </head>
 <body>
-  <!-- 이 페이지는 "빈 껍데기"다.
-       사용자가 추가한 채널을 localStorage에 저장하고, src/app.js가 Worker로 최신 영상을 받아 그린다.
-       (추천 채널/data.json 경로는 2026-07-28에 화면에서 제거, 2026-07-31에 파일도 삭제 — git 이력에 남아 있다) -->
-  <h1>최신 영상 모음</h1>
+  <!-- ⭐ 여기 있던 화면 넷의 마크업이 전부 사라졌다 — 이제 React가 만든다.
+       예전엔 네 화면을 HTML에 다 그려두고 `hidden`으로 숨겼다. wire* 함수들이
+       getElementById로 요소를 잡았기 때문에 **DOM에 남아 있어야만** 동작했다.
+       React는 상태에서 화면을 만들므로 그 제약이 없어졌다.
 
-  <!-- 화면 넷 (갈래1 2.5단계). 해시 라우팅을 쓰는 이유:
-       정적 사이트라 history.pushState로 /channels 같은 경로를 만들면 **새로고침 때 404**가 난다
-       (그 경로에 파일이 없으니까). 해시는 서버 설정 없이 새로고침·뒤로가기가 그냥 된다. -->
-  <nav class="tabs" aria-label="화면">
-    <a href="#/feed"     data-screen="feed">📺 피드</a>
-    <a href="#/channels" data-screen="channels">📋 채널</a>
-    <a href="#/random"   data-screen="random">🎲 랜덤</a>
-    <a href="#/settings" data-screen="settings">⚙️ 설정</a>
-  </nav>
+       ⭐ 캐시 버스팅(?v=NN)도 통째로 사라졌다. 손으로 맞출 곳이 여섯이었고
+          옛 index.html에 "더 늘면 그게 **빌드 단계를 들일 신호**다"라고 적어뒀는데,
+          그 신호가 켜져서 들인 것이 Vite다. 이제 번들러가 파일명에 해시를 박는다. -->
+  <div id="root"></div>
 
-  <!-- ══════════ ② 메인 피드 — 고른 채널의 최신 영상 ══════════ -->
-  <section class="screen" id="screen-feed" hidden>
-    <div id="my"></div>       <!-- 내가 추가한 채널 -->
-  </section>
-
-  <!-- ══════════ ① 채널 관리 — 무엇을 볼지 고른다 ══════════ -->
-  <section class="screen" id="screen-channels" hidden>
-    <details class="controls" open>
-      <summary>＋ 내 채널 추가</summary>
-
-      <div class="row">
-        <button type="button" id="subsBtn" hidden>구독 채널 전부 가져오기</button>
-        <span id="subsStatus" class="status"></span>
-      </div>
-      <!-- 로그인 버튼은 ④ 설정에 있다. 여기서 구독 버튼이 그냥 사라지면
-           왜 없는지 알 수 없으므로, 로그아웃 상태에선 갈 곳을 알려준다. -->
-      <p class="hint" id="subsHint">
-        구독 목록에서 가져오려면 <a href="#/settings">⚙️ 설정</a>에서 구글 로그인하세요.
-      </p>
-
-      <form id="addForm">
-        <input id="chInput" type="text"
-               placeholder="채널 링크 / @핸들 / 채널ID(UC…)" required>
-        <div class="row">
-          <input id="chTopic" type="text" placeholder="주제(선택)">
-          <input id="chName" type="text" placeholder="이름(선택)">
-        </div>
-        <button type="submit">추가</button>
-        <span id="addStatus" class="status"></span>
-      </form>
-      <p class="hint">이 브라우저에만 저장돼요(localStorage). 계정 없이 이 기기에서만 보입니다.</p>
-    </details>
-
-    <!-- 내 채널 목록 — **무엇을 볼지 고르는 곳.** 영상 없이 이름만 있어야 수백 개를 훑는다.
-         (영상까지 그리는 곳은 ② 피드다. 여기서 Worker를 부르면 화면 여는 값이 확 뛴다) -->
-    <div class="ch-head">
-      <strong>내 채널</strong>
-      <span id="chCount" class="status"></span>
-    </div>
-    <div class="row" id="chBulk">
-      <button type="button" id="allOff" class="ghost">전부 끄기</button>
-      <button type="button" id="allOn"  class="ghost">전부 켜기</button>
-    </div>
-    <div id="chList"></div>
-  </section>
-
-  <!-- ══════════ ③ 랜덤 추천 ══════════ -->
-  <section class="screen" id="screen-random" hidden>
-  <!-- 나중에 볼 풀: watchme 재생목록을 동기화해 채운다 → 그 안에서 랜덤 추천.
-       ⛔ 유튜브 "나중에 볼"(WL)은 API·RSS 모두 막혀 있어 전용 재생목록으로 우회한다.
-          예전엔 WL 화면에서 뽑은 ID를 붙여넣는 일회성 가져오기도 있었으나
-          재생목록 동기화로 충분해져 2026-08-07에 지웠다(git 이력에 남아 있다). -->
-  <section class="pool">
-    <div class="pool-head">
-      <strong>🎲 랜덤 추천</strong>
-      <span id="poolCount" class="status"></span>
-    </div>
-    <div class="row">
-      <button type="button" id="pickBtn">랜덤으로 하나</button>
-      <button type="button" id="repickBtn" class="ghost" hidden>다시 뽑기</button>
-    </div>
-    <div id="pick"></div>
-
-    <details class="sub">
-      <summary>영상 채워넣기 / 설정</summary>
-
-      <label class="lbl">watchme 재생목록 (앞으로 담는 곳)</label>
-      <!-- 풀 비우기를 이 줄에 같이 두면 폰(375px)에서 입력칸이 눌린다 → 줄을 나눈다 -->
-      <div class="row">
-        <input id="plInput" type="text" placeholder="재생목록 ID 또는 URL (PL...)">
-        <button type="button" id="syncBtn">동기화</button>
-      </div>
-      <p id="poolStatus" class="status"></p>
-      <div class="row">
-        <button type="button" id="clearBtn" class="ghost">풀 비우기</button>
-      </div>
-    </details>
-  </section>
-  </section>
-
-  <!-- ══════════ ④ 설정 — 로그인·데이터 관리 ══════════ -->
-  <section class="screen" id="screen-settings" hidden>
-
-  <!-- 구글 로그인: 내 유튜브 구독·재생목록을 직접 읽기 위한 인가(youtube.readonly).
-       ⛔ "나중에 볼"(WL)은 로그인해도 못 읽는다(2016년부터 차단) → watchme 우회는 그대로. -->
-  <div class="row">
-    <button type="button" id="authBtn">구글 로그인</button>
-    <span id="authStatus" class="status"></span>
-  </div>
-
-  <!-- 기기 동기화: localStorage는 브라우저 데이터를 지우면 통째로 날아간다.
-       드라이브의 앱 전용 폴더에 둔 JSON 한 장이 그 대비책이자 기기끼리 잇는 수단이다.
-       (파일로 내보내기/가져오기도 있었으나 드라이브로 갈음하고 2026-08-07에 지웠다 — git 이력에 남아 있다) -->
-  <details class="controls" id="backup">
-    <summary>☁️ 드라이브 동기화</summary>
-
-    <div class="row">
-      <button type="button" id="driveUpBtn">올리기</button>
-      <button type="button" id="driveDownBtn" class="ghost">내려받기</button>
-    </div>
-    <p id="driveStatus" class="status"></p>
-    <p class="hint">
-      채널 · 본 영상 · 나중에 볼 풀 · 재생목록 ID를 앱 전용 숨은 폴더에 저장해요
-      (내 드라이브 목록엔 안 보이고, 다른 앱도 못 봅니다. 채널 캐시는 다시 만들어지므로 제외).
-      <strong>누른 쪽이 통째로 이깁니다.</strong> 올리기는 드라이브를 이 기기 내용으로,
-      내려받기는 이 기기를 드라이브 내용으로 덮어써요. 채널을 켜고 끈 것·지운 것까지 그대로 따라옵니다.
-      <br>
-      대신 <strong>반대편에만 있던 것은 사라집니다.</strong> 그래서 누르기 전에 몇 개가 사라지는지 보여드려요.
-    </p>
-  </details>
-
-  </section>
-
-  <!-- ?v= 는 캐시 버스팅: app.js를 고칠 때마다 숫자를 올린다.
-       그래야 새 index.html이 캐시된 옛 app.js를 쓰다 깨지는 사고(버전 불일치)가 안 난다.
-       경로는 배포 후 URL과 그대로 이어진다(publish_dir이 저장소 루트라 src/도 통째로 올라간다).
-       ⚠️ type="module" 이후로는 여기의 ?v= 가 app.js에만 붙는다.
-          worker.js·storage.js·youtube.js·drive.js는 app.js 안의 import 경로에 붙은 ?v= 로 갈린다
-          → 올릴 땐 **여섯 곳을 함께**:
-            ① 위 <link>의 style.css  ② 여기 app.js  ③④⑤⑥ app.js의 import 4개
-            + drive.js가 youtube.js를 부르는 1곳(= import와 같은 값이어야 한다)
-          drive.js 쪽을 빠뜨리면 youtube.js가 두 번 로드돼 토큰을 쥔 변수가 둘이 된다
-          (증상: 로그인했는데 드라이브에서 "로그인이 필요해").
-       ⚠️ 손으로 맞출 곳이 여섯이다. 더 늘면 그게 **빌드 단계를 들일 신호**다. -->
+  <!-- 구글 로그인(GIS). async라 버튼을 누른 시점에 아직 안 왔을 수 있어
+       youtube.ts의 ensureClient()가 최대 2초 기다린다. -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script type="module" src="src/app.js?v=25"></script>
+  <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>
