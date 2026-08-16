@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/* ══════════════════ tokens — 색은 여기서만 정한다 ══════════════════
+ *
+ * 2026-08-05에 CSS 변수 7개로 정리했던 것을 그대로 Tailwind의 @theme으로 옮겼다.
+ * @theme에 넣으면 `text-muted`·`bg-accent` 같은 유틸리티가 자동으로 생긴다 —
+ * 즉 **토큰이 곧 클래스 이름**이 되어, 색을 직접 쓰는 길이 아예 막힌다.
+ *
+ * 이름은 "무슨 색인가"가 아니라 **"무슨 역할인가"** 로 짓는다
+ * (--blue가 아니라 --accent). 그래야 값을 바꿔도 이름이 안 거짓말한다.
+ *
+ * ⚠️ 강조색은 CSS 밖에도 네 군데 더 있다. 바꿀 땐 같이 바꿔야 한다:
+ *   ① index.html 의 favicon data URI(%234a90e2)  ② index.html 의 <meta name="theme-color">
+ *   ③ public/manifest.json 의 theme_color         ④ public/icons/*.svg 의 fill
+ */
+@theme {
+  --color-accent: #4a90e2; /* 링크·버튼·강조 막대 */
+  --color-accent-ink: #fff; /* 강조색 위에 얹는 글자 */
+  --color-muted: #8a8a8a; /* 날짜·안내·보조 문구 */
+  --color-line: #8886; /* 입력칸·고스트 버튼 테두리 */
+  --color-line-faint: #8883; /* 섹션 상자 테두리 (더 옅다) */
+  --color-danger: #c0392b; /* 삭제 */
+  --color-danger-line: #c0392b55;
+
+  --font-sans: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+}
+
+/* 회색 계열을 #888 + 알파로 둔 건 의도다 — 라이트/다크 어느 쪽 배경에서도
+   같은 값이 적당히 묻힌다. 그래서 지금도 다크 전용 오버라이드가 필요 없다. */
+
+@layer base {
+  :root {
+    color-scheme: light dark; /* 폰 다크모드 자동 대응 — 배경·글자색을 브라우저가 준다 */
+  }
+
+  body {
+    font-family: var(--font-sans);
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 16px;
+    line-height: 1.6; /* 줄 간격 → 읽기 편하게 */
+  }
+
+  /* ⚠️ Tailwind의 리셋(preflight)은 h1·p의 여백과 크기를 전부 지운다.
+     옛 화면은 **브라우저 기본값 위에 얹혀 있었으므로**, 지워진 만큼 여기서 되돌린다.
+     이걸 빼먹으면 "프레임워크만 바꿨는데 화면이 달라졌다"가 된다. */
+  h1 {
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin-bottom: 2px;
+  }
+  p {
+    margin: 7px 0;
+  }
+}
