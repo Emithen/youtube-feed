@@ -38,8 +38,18 @@
 // 상태(state) 없음: DB도 로그인도 없다. 받아서 가공해 돌려줄 뿐.
 
 // 내 사이트에서만 쓰도록 제한 (아무나 내 Worker를 무료 프록시로 쓰지 못하게)
+//
+// ⚠️ **여기에 없는 origin은 CORS에 막혀 채널이 하나도 안 뜬다.** 배포 주소를 옮길 땐
+//  옛 주소를 지우기 전에 새 주소를 먼저 넣고 배포한다(둘 다 살아 있는 기간이 필요하다).
+//  2026-08-16: GitHub Pages → Vercel 이사. **옛 주소를 남겨둔 이유**는 사용자의
+//  localStorage가 origin별로 격리돼 있어서다 — 옛 주소에서 `☁️ 올리기`로 드라이브에
+//  올려야 새 주소에서 `내려받기`로 데이터를 옮길 수 있다. 이사가 끝나면 지운다.
+//
+// ⚠️ Vercel **프리뷰 배포 주소는 배포마다 바뀐다**(youtube-feed-git-xxxx.vercel.app).
+//  전부 등록할 수 없으므로 프리뷰에선 채널이 안 뜨는 게 정상이다. 고정 주소에서만 쓴다.
 const ALLOWED_ORIGINS = [
-  "https://emithen.github.io",
+  "https://youtube-feed-mu.vercel.app", // 현재 배포처 (2026-08-16~)
+  "https://emithen.github.io", // 옛 배포처 — 데이터 이사가 끝나면 지운다
   "http://localhost:8765",
   "http://127.0.0.1:8765",
 ];

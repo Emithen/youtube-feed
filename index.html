@@ -9,13 +9,14 @@
   <!-- 링크 공유 시 뜨는 미리보기 카드 (카톡·슬랙·트위터 등).
        크롤러는 상대경로를 못 읽는 곳이 많아 og:url·og:image는 절대주소로 쓴다.
        og:image는 SVG를 지원 안 하는 곳이 많아 PNG를 쓴다 (원본: public/og-image.svg).
-       ⚠️ 배포를 Vercel로 옮기면 이 두 절대주소를 새 도메인으로 바꿔야 한다. -->
+       ⚠️ 이 둘만은 상대경로로 못 쓴다 — 크롤러가 절대주소를 요구한다. 그래서 배포 주소를
+          옮길 때 **손으로 고쳐야 하는 유일한 자리**다 (2026-08-16 Vercel 이사). -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="최신 영상 모음">
   <meta property="og:title" content="최신 영상 모음">
   <meta property="og:description" content="관심 채널의 새 영상을 한 곳에서 모아 봅니다.">
-  <meta property="og:url" content="https://emithen.github.io/youtube-feed/">
-  <meta property="og:image" content="https://emithen.github.io/youtube-feed/og-image.png">
+  <meta property="og:url" content="https://youtube-feed-mu.vercel.app/">
+  <meta property="og:image" content="https://youtube-feed-mu.vercel.app/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="최신 영상 모음 — 관심 채널의 새 영상을 한 곳에서">
