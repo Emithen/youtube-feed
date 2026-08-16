@@ -11,6 +11,24 @@
 //       "videos": [ { "id": "...", "title": "...", "link": "...",
 //                     "date": "YYYY-MM-DD", "published": "ISO8601" } ] }
 //
+// 2026-08-16: **실패의 종류를 갈랐다.** 그전엔 전부 502였다.
+//  200 { channelId, name,       videos: [...] }                 정상 — 모양이 안 바뀐다
+//  200 { channelId, name,       videos: [], state: "empty" }    살아있는데 공개 영상 0개
+//  200 { channelId, name: null, videos: [], state: "gone"  }    채널 404 — 삭제·정지됨
+//  404 { error }   입력을 채널로 해석 못 함 (@핸들 오타 등)
+//  502 { error }   진짜 장애 — 유튜브 5xx·네트워크. **재시도가 의미 있는 경우만**
+//  400 { error }   ch 파라미터 없음
+//
+//  ⭐ 왜 "죽었다"가 200인가: 채널이 삭제됐다는 것은 **릴레이가 성공적으로 알아낸 사실**이지
+//   릴레이의 고장이 아니다. 5xx로 주면 "서버가 아픈가?"를 다시 의심하게 된다 — 2026-08-05에
+//   실제로 그 오진에 시간을 썼다(모든 예외를 502로 뭉갠 게 원인이었다). 5xx는 이제
+//   **"답을 모르겠다"일 때만** 쓴다. 그래야 상태코드가 곧 "재시도해도 되나"의 답이 된다.
+//
+//  ⭐ 정상 응답은 **한 글자도 안 바뀐다**(state 없음 = 정상). 저장된 채널의 `active`,
+//   백업 payload와 같은 규약 — 기존 필드는 그대로 두고 **추가만** 한다.
+//   그래서 이 Worker를 먼저 배포해도 옛 화면이 안 깨진다. Worker는 대시보드에 손으로
+//   붙여넣는 것이라 화면과 배포가 따로 노는데, 그 순서를 신경 안 써도 된다는 뜻이다.
+//
 // 2026-07-31: /playlist·/videos(YouTube Data API)를 걷어냈다.
 //  구글 로그인이 붙으면서 그쪽은 **브라우저가 유튜브를 직접** 부른다(src/youtube.js).
 //  릴레이의 존재 이유였던 ①CORS ②키 숨기기가 OAuth 호출엔 둘 다 해당이 없기 때문.
@@ -57,11 +75,19 @@ export default {
 
       return json({ error: "없는 경로" }, 404, cors);
     } catch (e) {
+      // 여기까지 내려오는 것은 **답을 못 낸 경우뿐이다.**
+      // "채널이 죽었다"·"영상이 없다"는 위에서 200으로 답하고 이리로 오지 않는다.
+      const status = e instanceof NotFound ? 404 : 502;
       // 실패는 캐시하지 않는다. 일시적 장애가 10분간 굳어버리면 안 되니까.
-      return json({ error: String(e.message || e) }, 502, corsHeaders(origin, "no-store"));
+      // 404(오타)도 캐시하지 않는다 — 방금 만든 채널이 10분간 "없는 채널"로 굳으면 곤란하다.
+      return json({ error: String(e.message || e) }, status, corsHeaders(origin, "no-store"));
     }
   },
 };
+
+// 입력을 채널로 해석하지 못했다. 릴레이는 멀쩡하고 **요청이 틀린 것**이라 404로 답한다.
+// (채널이 삭제된 것과는 다르다 — 그건 해석은 됐고 실제로 사라진 경우라 200 + state:"gone".)
+class NotFound extends Error {}
 
 // ────────────────────────── CORS ──────────────────────────
 function corsHeaders(origin, cache = "public, max-age=600") {
@@ -95,7 +121,14 @@ async function resolveChannelId(input) {
   if (input.startsWith("@")) pageUrl = "https://www.youtube.com/" + input;
   else if (!/^https?:\/\//.test(input)) pageUrl = "https://www.youtube.com/@" + input;
 
-  const html = await getText(pageUrl, 3600); // 핸들→ID는 안 바뀌니 1시간 캐시
+  let html;
+  try {
+    html = await getText(pageUrl, 3600); // 핸들→ID는 안 바뀌니 1시간 캐시
+  } catch (e) {
+    // 채널 페이지가 404 = 그런 핸들이 애초에 없다. 장애가 아니라 오타다.
+    if (e.upstream === 404) throw new NotFound("그런 채널이 없어 (핸들·링크를 확인해줘)");
+    throw e;
+  }
 
   // ⚠️ 채널 페이지는 2.4MB나 되고, 그 안엔 "추천 채널"의 ID도 잔뜩 들어있다.
   //  - 정규식으로 전체를 훑으면 Worker CPU 한도(10ms)를 넘겨 죽는다 → indexOf로 위치만 찾는다.
@@ -105,7 +138,7 @@ async function resolveChannelId(input) {
     findAfter(html, 'rel="canonical" href="https://www.youtube.com/channel/') ||
     findAfter(html, '"externalId":"') ||
     findAfter(html, '"channelId":"'); // 최후 수단
-  if (!id) throw new Error("채널 ID를 못 찾았어 (링크를 확인해줘)");
+  if (!id) throw new NotFound("채널 ID를 못 찾았어 (링크를 확인해줘)");
   return id;
 }
 
@@ -120,10 +153,18 @@ function findAfter(html, marker) {
 
 // ────────────────────────── channel_id → 채널명 + 영상들 ──────────────────────────
 async function fetchFeed(channelId, limit) {
-  const xml = await getText(
-    `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`,
-    600 // 영상 목록은 10분 캐시
-  );
+  let xml;
+  try {
+    xml = await getText(
+      `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`,
+      600 // 영상 목록은 10분 캐시
+    );
+  } catch (e) {
+    // 피드 자체가 404 = 채널이 삭제·정지됐다. **이건 답이지 고장이 아니다.**
+    // 이름은 줄 수 없다 — 응답이 아예 없어서 읽을 곳이 없다.
+    if (e.upstream === 404) return { name: null, videos: [], state: "gone" };
+    throw e; // 5xx·네트워크는 진짜 장애 → 502
+  }
 
   // 채널명: 첫 <entry> 앞쪽의 <title>
   const head = xml.split("<entry>")[0];
@@ -146,7 +187,11 @@ async function fetchFeed(channelId, limit) {
       };
     });
 
-  if (videos.length === 0) throw new Error("영상을 못 찾았어 (비공개/삭제 채널일 수 있음)");
+  // 영상 0개는 **정상 상황**이다 — 채널은 살아 있고(피드가 200이었다) 공개 영상만 없다.
+  // 예전엔 여기서 throw해서 502가 됐다. 2026-08-05에 원인을 규명하고도 남겨둔 자리다.
+  // 이름은 <entry> 앞쪽에서 읽으므로 영상이 없어도 멀쩡히 나온다 → 화면에 채널명을 띄울 수 있다.
+  if (videos.length === 0) return { name, videos: [], state: "empty" };
+
   return { name, videos };
 }
 
@@ -156,7 +201,13 @@ async function getText(target, cacheTtl) {
     headers: { "User-Agent": UA, "Accept-Language": "ko,en;q=0.8" },
     cf: { cacheTtl, cacheEverything: true }, // Cloudflare가 알아서 캐시해줌
   });
-  if (!res.ok) throw new Error("유튜브 응답 " + res.status);
+  if (!res.ok) {
+    const e = new Error("유튜브 응답 " + res.status);
+    // 부르는 쪽이 404(없는 채널 = 답)와 5xx(일시 장애 = 고장)를 갈라야 한다.
+    // 메시지 문자열을 파싱해서 판정하지 않는다 — 그 방식이 지금까지 조용히 틀려 있었다.
+    e.upstream = res.status;
+    throw e;
+  }
   return res.text();
 }
 
