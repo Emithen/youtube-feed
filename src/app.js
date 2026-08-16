@@ -19,10 +19,10 @@
 // ?v= 는 import에도 붙인다 — index.html의 ?v=만으로는 이 파일들의 캐시가 갈리지 않는다.
 // (새 app.js + 캐시된 옛 worker.js 조합으로 깨지는 사고를 막는다. 버전 올릴 땐 아래 네 줄도 같이.)
 // ⚠️ drive.js도 youtube.js를 import한다 — **그쪽 ?v= 도 같은 값이어야** 모듈이 하나로 유지된다.
-import * as worker from "./worker.js?v=24";
-import * as store from "./storage.js?v=24";
-import * as yt from "./youtube.js?v=24";
-import * as drive from "./drive.js?v=24";
+import * as worker from "./worker.js?v=25";
+import * as store from "./storage.js?v=25";
+import * as yt from "./youtube.js?v=25";
+import * as drive from "./drive.js?v=25";
 
 // 바깥과 닿는 곳이 둘로 갈린다:
 //  worker.js  … 채널 최신 영상(RSS). 로그인과 무관하게 늘 동작한다.
@@ -131,6 +131,18 @@ function sectionEl(topic, name, videos, opts = {}) {
   }
   return wrap;
 }
+
+// ── Worker의 판정(state) → 화면에 띄울 한 줄 ──
+// 문장을 여기서 만드는 이유: Worker는 "무슨 일이 있었나"만 알고, "뭐라고 말할까"는
+// 화면마다 다르다(피드 vs 채널 추가 폼). worker.js 머리의 경계 규칙 그대로다.
+const STATE_TEXT = {
+  gone: "(채널이 없어졌어 — 삭제·정지된 것 같아)",
+  empty: "(아직 공개된 영상이 없어)",
+};
+
+// state가 붙어 온 응답은 videos가 비어 있다. 그냥 그리면 **제목만 있는 빈 칸**이 되므로
+// 자리표시자 한 줄을 대신 넣는다. link가 "#"이라 sectionEl이 본 영상 표시를 안 붙인다.
+const stateRow = (state) => ({ title: STATE_TEXT[state] || "(불러올 게 없어)", link: "#", date: "" });
 
 function groupLabel(text) {
   const p = document.createElement("p");
@@ -289,8 +301,13 @@ function renderMyChannels() {
     // 백그라운드로 최신 받아 교체
     worker.fetchChannel(ch.channelId)
       .then((data) => {
-        store.cacheChannel(ch.channelId, data.videos);
-        const fresh = sectionEl(ch.topic, ch.name, data.videos, { onDelete });
+        // 죽었거나 비었으면 그 사실을 한 줄로 알린다. **캐시에는 넣지 않는다** —
+        // 채널이 되살아나거나 영상이 올라오면 다음 방문에 바로 반영돼야 하고,
+        // 빈 배열을 캐시하면 그 자리가 "제목만 있는 빈 칸"으로 굳는다.
+        const rows = data.state ? [stateRow(data.state)] : data.videos;
+        if (!data.state) store.cacheChannel(ch.channelId, data.videos);
+
+        const fresh = sectionEl(ch.topic, ch.name, rows, { onDelete });
         box.replaceChild(fresh, el);
         el = fresh;
       })
@@ -327,6 +344,13 @@ function wireForm() {
       // Worker가 채널 해석 + 최신 영상까지 한 번에 준다 (요청 1회)
       const data = await worker.fetchChannel(input);
 
+      // 죽은 채널은 추가해봐야 영원히 빈 칸이고, 이름조차 못 받는다(name: null).
+      // ⚠️ 이건 throw가 아니라 **정상 응답**으로 온다 — catch에 걸리지 않으니 여기서 막는다.
+      if (data.state === "gone") {
+        status.textContent = "그 채널은 없어졌어 (삭제·정지된 것 같아).";
+        return;
+      }
+
       const list = store.loadChannels();
       if (list.some((c) => c.channelId === data.channelId)) {
         status.textContent = "이미 추가된 채널이야.";
@@ -338,11 +362,16 @@ function wireForm() {
       list.push({ topic, name, channelId: data.channelId });
       store.saveChannels(list);
 
-      // 방금 받은 영상을 바로 캐시에 넣어 두면 렌더가 즉시 뜬다
-      store.cacheChannel(data.channelId, data.videos);
+      // 방금 받은 영상을 바로 캐시에 넣어 두면 렌더가 즉시 뜬다 (빈 것은 안 넣는다 — 위와 같은 이유)
+      if (!data.state) store.cacheChannel(data.channelId, data.videos);
 
       form.reset();
-      status.textContent = `추가됨: ${name}`;
+      // ⭐ 영상 0개 채널은 이제 **추가된다.** 예전엔 502로 막혀서 "고장"처럼 보였는데,
+      //  살아있는 채널이라 막을 이유가 없다. 대신 피드가 빈 칸일 이유를 미리 말해준다.
+      status.textContent =
+        data.state === "empty"
+          ? `추가됨: ${name} — 아직 공개된 영상이 없어서 피드엔 빈 줄로 나와.`
+          : `추가됨: ${name}`;
       // 지금 보고 있는 건 📋 채널 화면이다. 여기서 피드를 그리면 **다른 채널 전부에**
       // 요청이 나간다 — 방금 하나 추가했을 뿐인데. 목록만 고치고 피드는 갈 때 그린다.
       renderChannelList();
