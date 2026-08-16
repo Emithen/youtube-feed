@@ -4,12 +4,12 @@
 // 영상을 같이 그리면 열자마자 채널 수만큼 요청이 나간다. 여기는 이름만 그린다.
 // (채널을 추가할 때만 확인차 한 번 부른다 — 그건 사용자가 명시적으로 누른 것이다)
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import * as store from "../lib/storage";
 import * as worker from "../lib/worker";
-import * as yt from "../lib/youtube";
-import type { AppError, Channel } from "../lib/types";
+import type { Channel } from "../lib/types";
 import { Hint, Status, btn, btnGhostSm, input } from "../ui";
+import SubscriptionPicker, { type PickerHandle } from "../components/SubscriptionPicker";
 
 function ChannelRow({
   ch,
@@ -75,10 +75,17 @@ export default function Channels({
   const [name, setName] = useState("");
   const [addStatus, setAddStatus] = useState("");
   const [adding, setAdding] = useState(false);
-  const [subsStatus, setSubsStatus] = useState("");
-  const [subsBusy, setSubsBusy] = useState(false);
+  // ⭐ 열림 상태를 여기 두지 않는다 — `<dialog>`가 이미 갖고 있다(SubscriptionPicker 주석 참고).
+  const picker = useRef<PickerHandle>(null);
 
   const activeCount = channels.filter(store.isActive).length;
+
+  // ⚠️ 2026-08-17 이전 구조의 잔재 — 구독 319개를 `myChannels`에 부어놓고 켜고 끄던 시절의
+  //  "안 고른 것"들이다. 지금은 구독을 저장하지 않으므로 이것들은 자리만 차지하고
+  //  **드라이브 payload에 실려 다닌다.** 판별 기준이 `topic === "구독" && !active`인 이유:
+  //  구독 가져오기가 그 모양으로 담았고, 앞으로 모달로 고른 것은 `topic: "내 채널"`이 된다.
+  //  → 한 번 정리하면 이 배너는 다시 안 뜬다(조건이 스스로 사라진다).
+  const leftover = channels.filter((c) => c.topic === "구독" && c.active === false);
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -128,41 +135,15 @@ export default function Channels({
     }
   }
 
-  // 구독 채널 → 내 채널 목록에 **후보로** 담는다.
-  // ⭐ `active: false`로 들어온다 — "구독한 것은 곧 볼 것"이라는 전제를 버렸기 때문이다.
-  //    켜진 채로 들어오면 구독 수백 개가 그대로 피드가 되고, 피드를 열 때마다
-  //    그만큼 Worker 요청이 나간다. 고르는 건 아래 목록에서.
-  // 이미 있는 건 건드리지 않는다(주제·이름을 손봤을 수 있고, 이미 켜둔 것을 끄면 안 되니까).
-  async function importSubscriptions() {
-    setSubsBusy(true);
-    setSubsStatus("구독 목록 읽는 중…");
-    try {
-      const subs = await yt.fetchSubscriptions((got, total) => {
-        setSubsStatus(`구독 목록 읽는 중… ${got}${total ? "/" + total : ""}`);
-      });
-      const have = new Set(channels.map((c) => c.channelId));
-      const next = [...channels];
-      let added = 0;
-      for (const s of subs) {
-        if (have.has(s.channelId)) continue;
-        next.push({ topic: "구독", name: s.name, channelId: s.channelId, active: false });
-        have.add(s.channelId);
-        added++;
-      }
-      save(next);
-      // 빠진 이유를 셈해서 알려준다 (조용히 사라지면 왜 개수가 다른지 알 수 없다)
-      // 꺼진 채로 들어온다는 것도 같이 말한다 — 안 그러면 피드가 그대로라 실패로 보인다.
-      setSubsStatus(
-        `구독 ${subs.length}개 중 ${added}개 담음` +
-          (subs.length - added > 0 ? ` (이미 있던 것 ${subs.length - added}개)` : "") +
-          (added > 0 ? " — 아래에서 볼 채널을 켜세요" : "")
-      );
-    } catch (e) {
-      const err = e as AppError;
-      setSubsStatus(err.needsAuth ? "로그인이 필요해." : "실패: " + err.message);
-    } finally {
-      setSubsBusy(false);
-    }
+  // ⭐ 구독 "가져오기"가 사라지고 "고르기"가 됐다 (2026-08-17).
+  //  예전엔 319개를 통째로 `myChannels`에 부은 뒤 목록에서 켜고 껐다. 지금은 모달에서
+  //  고른 것만 들어온다 — **담는 것과 고르는 것이 한 번에 끝난다.**
+  function addPicked(picked: Channel[]) {
+    const have = new Set(channels.map((c) => c.channelId));
+    const fresh = picked.filter((c) => !have.has(c.channelId));
+    if (fresh.length === 0) return;
+    save([...channels, ...fresh]);
+    setAddStatus(`${fresh.length}개 추가됨 — 아래 목록에서 켜고 끌 수 있어.`);
   }
 
   return (
@@ -170,19 +151,20 @@ export default function Channels({
       <details className="border border-line-faint rounded-[10px] px-3.5 py-2.5 mb-[22px]" open>
         <summary className="cursor-pointer font-semibold">＋ 내 채널 추가</summary>
 
+        {/* ⭐ 채널을 추가하는 갈래가 둘이고, **같은 자리에 형제로** 놓인다:
+            ① 링크·@핸들 직접 입력 (아래 폼)   ② 구독 목록에서 고르기 (모달)
+            개선안 4번(유튜브 검색)이 붙으면 여기 셋째로 들어온다 — 셋 다
+            "목록/입력에서 골라 내 채널로 담는다"는 같은 모양이라 자리가 이미 있다. */}
         <div className="flex gap-2 flex-wrap items-center mt-2.5">
-          {/* 로그인 버튼은 ④ 설정에 있다. 여기서 구독 버튼이 그냥 사라지면
+          {/* 로그인 버튼은 ④ 설정에 있다. 여기서 버튼이 그냥 사라지면
               왜 없는지 알 수 없으므로, 로그아웃 상태에선 갈 곳을 알려준다. */}
           {signedIn ? (
-            <>
-              <button type="button" className={btn} disabled={subsBusy} onClick={importSubscriptions}>
-                구독 채널 전부 가져오기
-              </button>
-              <Status>{subsStatus}</Status>
-            </>
+            <button type="button" className={btn} onClick={() => picker.current?.open()}>
+              📥 구독 목록에서 고르기
+            </button>
           ) : (
             <Hint className="!mt-0">
-              구독 목록에서 가져오려면{" "}
+              구독 목록에서 고르려면{" "}
               <a href="#/settings" className="text-accent font-semibold">
                 ⚙️ 설정
               </a>
@@ -224,6 +206,45 @@ export default function Channels({
 
         <Hint>이 브라우저에만 저장돼요(localStorage). 계정 없이 이 기기에서만 보입니다.</Hint>
       </details>
+
+      {/* 옛 구조의 잔재 정리 — 한 번 누르면 조건이 사라져 다시 안 뜬다.
+          ⚠️ 자동으로 지우지 않는다. 동기화가 대칭 덮어쓰기라 **드라이브까지 전파**되고
+             되돌릴 수 없다 — 몇 개가 사라지는지 보여주고 확인을 받는 게 이 앱의 규칙이다. */}
+      {leftover.length > 0 && (
+        <div className="border border-line-faint rounded-[10px] px-3.5 py-2.5 mb-[22px]">
+          <p className="m-0 text-[.9rem]">
+            구독에서 가져왔지만 <strong>안 고른 채널 {leftover.length}개</strong>가 남아 있어요.
+          </p>
+          <Hint>
+            이제 구독 목록은 <strong>필요할 때 불러오므로</strong> 저장해둘 필요가 없어요. 지우면
+            드라이브에 올리는 양도 그만큼 줄어듭니다. 구독은 언제든 위 버튼으로 다시 볼 수 있어요.
+          </Hint>
+          <button
+            type="button"
+            className={btnGhostSm + " mt-2"}
+            onClick={() => {
+              if (
+                !confirm(
+                  `안 고른 구독 채널 ${leftover.length}개를 지웁니다.\n` +
+                    `내 채널 ${channels.length - leftover.length}개는 그대로 남습니다.\n\n` +
+                    "⚠️ 다음에 ☁️ 올리기를 누르면 드라이브에도 반영됩니다.\n\n계속할까요?"
+                )
+              )
+                return;
+              save(channels.filter((c) => !(c.topic === "구독" && c.active === false)));
+              setAddStatus(`${leftover.length}개 정리했어.`);
+            }}
+          >
+            {leftover.length}개 정리하기
+          </button>
+        </div>
+      )}
+
+      <SubscriptionPicker
+        ref={picker}
+        existing={new Set(channels.map((c) => c.channelId))}
+        onAdd={addPicked}
+      />
 
       {/* 켜진 개수를 세어 보여준다 — 수백 개일 때 "지금 몇 개가 피드에 나오나"가 안 보이면 못 고른다. */}
       <div className="flex items-baseline gap-2.5 mt-[22px] mb-2">
