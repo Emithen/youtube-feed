@@ -1,4 +1,5 @@
-// App.tsx — 화면 넷을 잇는 곳. 상태를 여기 모아 아래로 내린다.
+// App.tsx — 화면 다섯을 잇는 곳. 상태를 여기 모아 아래로 내린다.
+//  (2026-08-20에 넷 → 다섯. 다섯째가 「💬 의견」이다 — SCREENS 주석의 폭 경고 참고)
 //
 // ⭐ 옛 라우터는 네 화면을 **DOM에 전부 그려두고 hidden으로 숨겼다.** wire* 함수들이
 //  getElementById로 요소를 잡았기 때문에, 안 보이는 화면도 DOM에 있어야만 동작했다
@@ -15,7 +16,9 @@ import Feed, { type Loaded } from "./screens/Feed";
 import Channels from "./screens/Channels";
 import Random from "./screens/Random";
 import Settings from "./screens/Settings";
+import Feedback from "./screens/Feedback";
 import { SCREENS, useAuth, useChannels, useHashRoute, usePool, useWatched } from "./state";
+import { isActive } from "./lib/storage";
 import type { Channel } from "./lib/types";
 
 const TAB_LABEL: Record<string, string> = {
@@ -23,6 +26,7 @@ const TAB_LABEL: Record<string, string> = {
   channels: "📋 채널",
   random: "🎲 랜덤",
   settings: "⚙️ 설정",
+  feedback: "💬 의견",
 };
 
 export default function App() {
@@ -76,7 +80,7 @@ export default function App() {
     <>
       <h1>최신 영상 모음</h1>
 
-      {/* 화면 탭. flex-1로 넷이 균등하게 — 폰에서 누르기 쉽게. */}
+      {/* 화면 탭. flex-1로 균등하게 — 폰에서 누르기 쉽게. */}
       <nav aria-label="화면" className="flex gap-0.5 mt-3.5 mb-[18px] border-b border-line-faint">
         {SCREENS.map((name) => (
           <a
@@ -124,6 +128,11 @@ export default function App() {
       )}
 
       {screen === "settings" && <Settings signedIn={signedIn} onReplaced={onReplaced} />}
+
+      {/* 의견에 함께 실리는 건 **켠 채널 수**다 — 목록이 아니라 개수만 나간다(Feedback.tsx 주석). */}
+      {screen === "feedback" && (
+        <Feedback signedIn={signedIn} channels={channels.filter(isActive).length} />
+      )}
     </>
   );
 }

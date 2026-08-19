@@ -18,7 +18,9 @@ import type { Channel, PoolVideo } from "./lib/types";
 // (그 경로에 파일이 없다). 해시는 서버 설정 없이 새로고침·뒤로가기가 그냥 된다.
 // ⚠️ Vercel로 옮겨도 이 선택은 그대로 둔다 — rewrite 설정에 기대지 않는 편이 안전하고,
 //    이미 공유된 #/feed 주소가 계속 열려야 한다.
-export const SCREENS = ["feed", "channels", "random", "settings"] as const;
+// ⚠️ 다섯째가 붙으면서 탭 하나의 폭이 20%가 됐다(폰 375px에서 ~72px).
+//  「💬 의견」이 사실상 한계다 — 더 늘리려면 이모지를 떼거나 라벨을 줄이는 게 먼저다.
+export const SCREENS = ["feed", "channels", "random", "settings", "feedback"] as const;
 export type Screen = (typeof SCREENS)[number];
 
 const readHash = (): Screen => {

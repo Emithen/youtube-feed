@@ -20,6 +20,8 @@ export const KEYS = {
   watched: "watched", // 본 영상 { 영상ID: 본 시각 }
   pool: "laterPool", // 나중에 볼 풀 { 영상ID: {...영상, addedAt, source} }
   playlistId: "playlistId", // watchme 재생목록 ID
+  myFeedback: "myFeedback", // 내가 보낸 의견의 사본 (서버가 원본, 여기는 확인용)
+  feedbackDraft: "feedbackDraft", // 보내다 실패한 글 (사람이 쓴 글을 네트워크가 먹으면 안 된다)
 } as const;
 
 // ⚠️ **이 파일이 관리하지 않는 키가 하나 있다: `authToken`** (youtube.ts, 2026-08-15).
@@ -139,6 +141,30 @@ export const clearPool = () => localStorage.removeItem(KEYS.pool);
 export const loadPlaylistId = () => localStorage.getItem(KEYS.playlistId) || "";
 export const savePlaylistId = (id: string) => localStorage.setItem(KEYS.playlistId, id);
 
+// ────────────────────────── 의견 (2026-08-20) ──────────────────────────
+// ⚠️ **둘 다 `channelCache`·`subsCache`와 같은 지위다** — localStorage에 있지만
+//  `exportAll`에 넣지 않는다. 넣으면 드라이브로 실려 나간다.
+//  근거도 같다: 원본은 딴 데(여기선 내 서버) 있고, 이건 "방금 뭘 보냈더라"를 보여줄 사본이다.
+
+export type SentFeedback = { at: number; kind: string; body: string };
+
+export const loadMyFeedback = (): SentFeedback[] => loadJSON<SentFeedback[]>(KEYS.myFeedback, []);
+
+// 최근 것이 위로. 20건만 남긴다 — 목록이 아니라 "방금 보낸 것 확인"이 목적이라 그 이상은 짐이다.
+export function addMyFeedback(item: SentFeedback) {
+  const list = [item, ...loadMyFeedback()].slice(0, 20);
+  saveJSON(KEYS.myFeedback, list);
+  return list;
+}
+
+// ⭐ 초안: **실패해도 입력한 글을 지우지 않는다.** 사람이 쓴 글을 네트워크 실패로
+//  날리는 게 이 기능에서 낼 수 있는 최악의 사고다. 성공하면 즉시 지운다.
+export type Draft = { kind: string; body: string; nickname: string };
+
+export const loadDraft = (): Draft | null => loadJSON<Draft | null>(KEYS.feedbackDraft, null);
+export const saveDraft = (d: Draft) => saveJSON(KEYS.feedbackDraft, d);
+export const clearDraft = () => localStorage.removeItem(KEYS.feedbackDraft);
+
 // ────────────────────────── 내보내기 / 가져오기 ──────────────────────────
 // 브라우저 데이터를 지우면 전부 사라지는 문제의 대비책이자, 기기끼리 잇는 수단이다.
 // 이 함수 한 쌍이 주고받는 "JSON 한 장"이 그대로 드라이브에 올라간다 → drive.ts
@@ -152,9 +178,14 @@ export const EXPORT_VERSION = 1;
 const isObj = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 
-// ⚠️ `channelCache`와 `subsCache`는 **일부러 뺀다.** 둘 다 언제든 다시 만들 수 있는 것이라
+// ⚠️ `channelCache`·`subsCache`는 **일부러 뺀다.** 둘 다 언제든 다시 만들 수 있는 것이라
 // 옮길 가치가 없는데(Worker가·구글이 다시 준다) 크기는 제일 크다.
 // → *다시 만들 수 있는 것은 계약에 넣지 않는다.*
+//
+// ⚠️ `myFeedback`·`feedbackDraft`(2026-08-20)도 뺀다. **다만 이유가 다르다** —
+// 이건 다시 만들 수 있어서가 아니라 **원본이 내 서버에 있어서**다. 여기 것은 사본이고,
+// 초안은 이 기기에서 쓰다 만 글이라 다른 기기로 따라갈 이유가 없다.
+// (기기를 옮겨서까지 이어 쓰고 싶어지면 그때가 신호등이다)
 export function exportAll(): ExportPayload {
   return {
     version: EXPORT_VERSION,
