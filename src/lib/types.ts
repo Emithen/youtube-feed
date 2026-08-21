@@ -31,11 +31,17 @@ export type Channel = {
 export type ChannelState = "gone" | "empty";
 
 // `/rss` 200 응답. state가 있으면 videos는 비어 있고, gone이면 name도 null이다.
+//
+// ⭐ `verified`는 **판정을 얼마나 믿을 수 있는가**다 (2026-08-21). `gone`에만 붙는다.
+//  Worker가 채널 페이지에 따로 확인해서 확정한 gone이면 true. 이 필드가 **없으면**
+//  옛 Worker가 보낸 미확인 판정이므로 화면은 캐시된 영상을 지우지 않는다.
+//  (Worker는 대시보드에 손으로 붙여넣어서 화면과 배포 시점이 어긋난다 — 그 틈을 메우는 필드다.)
 export type ChannelFeed = {
   channelId: string;
   name: string | null;
   videos: Video[];
   state?: ChannelState;
+  verified?: boolean;
 };
 
 // 화면이 실패를 읽는 방법. worker.ts와 youtube.ts가 **같은 모양으로** 붙여 넘긴다

@@ -50,6 +50,34 @@ export default function App() {
     loadedEpochRef.current = e;
     return true;
   }, []);
+
+  // ⭐ **실패한 로드는 "받아온 것"이 아니다** (2026-08-21).
+  //  epoch는 "채널 목록이 바뀌었나"만 셌고 "그래서 성공했나"는 안 봤다. 그래서 40개가
+  //  전부 실패해도 받아온 것으로 세고, 탭을 나갔다 와도 다시 안 받았다 — **화면이 실패한
+  //  상태에 갇혔다.** 실패가 하나라도 있으면 표시를 도로 내려서 다음 방문에 다시 받는다.
+  //  ref라 이걸 불러도 리렌더가 안 난다 → 지금 도는 이펙트를 다시 돌리지 않는다(루프 없음).
+  const invalidateLoad = useCallback(() => {
+    loadedEpochRef.current = -1; // epoch는 0부터 오르므로 -1과는 절대 안 겹친다
+  }, []);
+
+  // ── 손으로 누르는 "다시 불러오기" (2026-08-21) ──
+  // 없으면 실패했을 때 사용자가 할 수 있는 일이 **기다리는 것뿐**이었다.
+  // 잠금이 두 겹이라 둘 다 풀어야 실제로 다시 물어본다:
+  //   ① epoch(claimLoad)  … 올려서 이펙트를 통과시킨다
+  //   ② 브라우저 캐시      … fresh로 건너뛴다. 안 그러면 네트워크로 나가지도 않고
+  //                          max-age 동안 방금 그 실패가 그대로 재생된다.
+  const freshRef = useRef(false);
+  const refreshFeed = useCallback(() => {
+    freshRef.current = true;
+    setEpoch((n) => n + 1);
+  }, []);
+  // 한 번 읽고 내린다 — 손으로 누른 그 한 번만 캐시를 건너뛴다.
+  // (claimLoad 뒤에 부르므로 StrictMode의 두 번째 실행은 여기까지 오지 않는다)
+  const takeFresh = useCallback(() => {
+    const v = freshRef.current;
+    freshRef.current = false;
+    return v;
+  }, []);
   // 받아온 피드 결과. **화면이 아니라 여기 둔다** — 탭을 옮겨도 안 사라져야
   // "이미 받아온 건 다시 안 받는다"가 성립한다 (Feed.tsx의 이펙트 주석 참고).
   const [feed, setFeed] = useState<Record<string, Loaded>>({});
@@ -104,6 +132,9 @@ export default function App() {
           epoch={epoch}
           loaded={feed}
           claimLoad={claimLoad}
+          invalidateLoad={invalidateLoad}
+          takeFresh={takeFresh}
+          onRefresh={refreshFeed}
           onResult={onResult}
           onDelete={(channelId) => saveChannels(channels.filter((c) => c.channelId !== channelId))}
           hasWatched={watched.has}

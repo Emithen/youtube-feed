@@ -14,10 +14,20 @@
 // 2026-08-16: **실패의 종류를 갈랐다.** 그전엔 전부 502였다.
 //  200 { channelId, name,       videos: [...] }                 정상 — 모양이 안 바뀐다
 //  200 { channelId, name,       videos: [], state: "empty" }    살아있는데 공개 영상 0개
-//  200 { channelId, name: null, videos: [], state: "gone"  }    채널 404 — 삭제·정지됨
+//  200 { channelId, name: null, videos: [], state: "gone", verified: true }  삭제·정지 **확인됨**
 //  404 { error }   입력을 채널로 해석 못 함 (@핸들 오타 등)
 //  502 { error }   진짜 장애 — 유튜브 5xx·네트워크. **재시도가 의미 있는 경우만**
 //  400 { error }   ch 파라미터 없음
+//
+// 2026-08-21: **판정에 "모른다"를 만들었다.** 그전엔 알아냈다/못 알아냈다 둘뿐이었다.
+//  RSS의 404를 그대로 "삭제됨"으로 믿었는데 유튜브가 일시 장애에도 404를 주는 걸 확인했다
+//  (그날 살아있는 채널 40개가 전부 "없어졌어"로 떴다). → 404는 **증거이지 증명이 아니다.**
+//   RSS 404 → 채널 페이지에 확인 → 살아있음   : 502 (RSS만 아픔, 재시도하라)
+//                                → 없음       : 200 state:"gone", verified:true
+//                                → 확인 실패   : 502 (**모른다**. 단정하지 않는다)
+//  ⭐ `verified`를 붙인 이유: Worker는 대시보드에 손으로 붙여넣는 것이라 화면과 배포가
+//   따로 논다. 옛 Worker는 이 필드 없이 `gone`만 보내는데, 화면이 그걸 "미확인 판정"으로
+//   읽고 캐시된 영상을 지우지 않게 하려는 것이다. 기존 필드는 그대로 두고 **추가만** 한다.
 //
 //  ⭐ 왜 "죽었다"가 200인가: 채널이 삭제됐다는 것은 **릴레이가 성공적으로 알아낸 사실**이지
 //   릴레이의 고장이 아니다. 5xx로 주면 "서버가 아픈가?"를 다시 의심하게 된다 — 2026-08-05에
@@ -80,6 +90,8 @@ export default {
         const limit = Math.min(Number(url.searchParams.get("limit")) || 3, 15);
         const channelId = await resolveChannelId(ch);
         const feed = await fetchFeed(channelId, limit);
+        // 판정(state)에 따라 캐시 지시를 달리하지 않는다 — 애초에 캐시하지 않는다.
+        // 왜 그렇게 정했는지는 corsHeaders에 적어뒀다.
         return json({ channelId, ...feed }, 200, cors);
       }
 
@@ -88,9 +100,9 @@ export default {
       // 여기까지 내려오는 것은 **답을 못 낸 경우뿐이다.**
       // "채널이 죽었다"·"영상이 없다"는 위에서 200으로 답하고 이리로 오지 않는다.
       const status = e instanceof NotFound ? 404 : 502;
-      // 실패는 캐시하지 않는다. 일시적 장애가 10분간 굳어버리면 안 되니까.
-      // 404(오타)도 캐시하지 않는다 — 방금 만든 채널이 10분간 "없는 채널"로 굳으면 곤란하다.
-      return json({ error: String(e.message || e) }, status, corsHeaders(origin, "no-store"));
+      // 실패는 캐시하지 않는다 — 일시적 장애가 굳어버리면 안 되니까. 2026-08-21부터
+      // **성공도 캐시하지 않으므로**(corsHeaders 참고) 여기만 따로 지정할 것이 없어졌다.
+      return json({ error: String(e.message || e) }, status, cors);
     }
   },
 };
@@ -100,18 +112,34 @@ export default {
 class NotFound extends Error {}
 
 // ────────────────────────── CORS ──────────────────────────
-function corsHeaders(origin, cache = "public, max-age=600") {
+// ⭐ **캐시 지시는 하나뿐이다: 저장하지 마라** (2026-08-21).
+//  경로별로 다른 TTL을 주던 것을 없앴다. 판정마다 수명을 달리 매기는 건 "이 답은 틀릴 수
+//  있으니 피해 시간을 깎자"는 뜻이라, **틀린 답을 싸게 만들 뿐 답을 맞히지 못한다.**
+//  맞히는 일은 confirmGone이 하고, 여기서는 규칙을 하나로 둔다.
+function corsHeaders(origin) {
   const allow = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
     "Access-Control-Allow-Origin": allow,
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Max-Age": "86400",
     "Content-Type": "application/json; charset=utf-8",
-    // ⚠️ 필수: 응답의 CORS 헤더가 Origin마다 다르므로 캐시도 Origin별로 나눠 저장해야 한다.
-    //  없으면 localhost에서 만든 응답이 github.io 요청에 재사용돼 CORS 불일치로 죽는다(실제로 겪음).
+    // ⚠️ 응답의 CORS 헤더가 Origin마다 다르므로, 저장된다면 Origin별로 나뉘어야 한다.
+    //  (없어서 localhost 응답이 github.io 요청에 재사용돼 CORS 불일치로 죽은 적이 있다.)
+    //  지금은 no-store라 저장될 일이 없지만, 캐시가 돌아오는 순간 다시 필수가 되므로 남긴다.
     "Vary": "Origin",
-    // 같은 채널을 자주 부르면 캐시가 대신 답한다 (유튜브 부담·속도 개선)
-    "Cache-Control": cache,
+    // ⭐ **브라우저에 저장하지 않는다** (2026-08-21). 그전엔 `public, max-age=600`이었다.
+    //  주석에 적힌 의도는 "같은 채널을 자주 부르면 캐시가 대신 답한다(유튜브 부담·속도)"였는데,
+    //  근거 둘 다 이미 다른 층에 있었다:
+    //   · 유튜브 부담 … getText의 엣지 캐시(cf.cacheTtl)가 막는다. 여기가 없어도 유튜브엔 안 간다.
+    //     (실측: 핸들 경로가 1.20s → 0.47s로 내려앉는다 = 1.6MB를 통째로 건너뛰고 있다)
+    //   · 속도      … localStorage 캐시가 즉시 그린다. 이 층이 아끼는 왕복 0.45s 동안
+    //                 화면엔 이미 영상이 떠 있다.
+    //  게다가 **전제가 틀렸다**: 화면은 claimLoad 때문에 한 epoch에 채널당 딱 한 번만 부른다.
+    //  "자주 부르는" 일이 없으니 두 번째 호출을 위한 캐시가 발동할 자리도 없다.
+    //  실제로 발동하는 순간은 **사용자가 새로고침했을 때** — 즉 새 데이터를 달라고 명시한
+    //  바로 그 순간이다. 2026-08-21에 오진된 gone이 F5로도 안 풀리고 10분간 굳은 게 이것이다.
+    //  → 남는 순효과가 "다시 물어보지 못하게 막는 것"뿐이라 걷어냈다.
+    "Cache-Control": "no-store",
   };
 }
 
@@ -170,9 +198,13 @@ async function fetchFeed(channelId, limit) {
       600 // 영상 목록은 10분 캐시
     );
   } catch (e) {
-    // 피드 자체가 404 = 채널이 삭제·정지됐다. **이건 답이지 고장이 아니다.**
-    // 이름은 줄 수 없다 — 응답이 아예 없어서 읽을 곳이 없다.
-    if (e.upstream === 404) return { name: null, videos: [], state: "gone" };
+    // ⚠️ **2026-08-21에 뒤집었다.** 그전엔 여기서 바로 `state:"gone"`을 확정했다.
+    //  전제는 "RSS의 404 = 채널이 삭제됐다"였는데 **그 전제가 틀렸다.** 유튜브 RSS는
+    //  일시 과부하·스로틀링에도 404를 준다. 같은 채널에 20번 쏴서 200이 0~3번 나왔고,
+    //  본문까지 비교했지만 진짜 없는 채널의 404와 **1613바이트 중 URL 한 줄만 다르다**
+    //  — 응답만 보고 가르는 방법이 원리적으로 없다.
+    //  → 404는 이제 **증거이지 증명이 아니다.** 확정은 confirmGone이 따로 받아온다.
+    if (e.upstream === 404) return confirmGone(channelId);
     throw e; // 5xx·네트워크는 진짜 장애 → 502
   }
 
@@ -203,6 +235,49 @@ async function fetchFeed(channelId, limit) {
   if (videos.length === 0) return { name, videos: [], state: "empty" };
 
   return { name, videos };
+}
+
+// ────────────────────────── RSS 404의 진위 확인 ──────────────────────────
+// RSS가 404를 줬을 때 **다른 문으로 같은 질문을 한 번 더 한다.**
+//
+// ⭐ 재시도가 아니라 **다른 엔드포인트에 묻는 것**이라는 게 핵심이다. 같은 문을 또
+//  두드리면 같은 확률로 또 틀린다 — 확률을 확정으로 바꿀 수 없다. 채널 페이지는 RSS와
+//  별개로 서비스되고, 2026-08-21 장애 때 RSS가 0/20인 동안 10/10 멀쩡했다.
+//
+// ⚠️ 채널 페이지는 **없는 채널에도 200을 준다**(소프트 404). 본문에
+//  `"alerts":[{"alertRenderer":{"type":"ERROR","text":{"simpleText":"존재하지 않는 채널입니다."}}}]`
+//  을 실어 보낼 뿐이다. **상태코드만 보면 안 되고 본문의 표지를 봐야 한다.**
+//
+// ⚠️ 표지로 `"channelId":"`를 쓰면 안 된다. 죽은 채널 페이지에도 그게 딱 하나 있는데
+//  **우리가 URL로 보낸 그 ID가 되울려 나온 것**이다(에코 — UCzzz…를 넣으면 UCzzz…가 나온다).
+//  resolveChannelId의 최후 수단이 하필 그 마커인데, 그 함수는 핸들일 때만 불리고 없는
+//  핸들은 진짜 404를 받아서 지금까지 안 터졌을 뿐이다. 경로가 안 닿았을 뿐 로직은 틀려 있다.
+//  → 여기서는 **살아있는 페이지에만 있는 표지**(canonical·externalId)만 본다.
+async function confirmGone(channelId) {
+  let html;
+  try {
+    // 살아있음은 바뀔 수 있다(채널은 언제든 삭제된다) → 핸들→ID의 1시간보다 짧게 잡는다.
+    html = await getText(`https://www.youtube.com/channel/${channelId}`, 300);
+  } catch (e) {
+    // 채널 페이지까지 404 = **서로 다른 두 문이 같은 답을 했다.** 이제야 확정이다.
+    if (e.upstream === 404) return { name: null, videos: [], state: "gone", verified: true };
+    // 확인 자체를 못 했다 → **모른다.** 모르는 것을 사실로 단정하지 않는다 → 502.
+    throw e;
+  }
+
+  const alive =
+    html.includes('rel="canonical" href="https://www.youtube.com/channel/') ||
+    html.includes('"externalId":"');
+
+  if (alive) {
+    // 채널은 살아있는데 RSS만 404다 = 유튜브 쪽 일시 장애. **재시도가 의미 있다** → 502.
+    const e = new Error("유튜브 RSS가 일시적으로 404를 주고 있어 (채널은 살아있음)");
+    e.upstream = 503; // NotFound가 아니므로 바깥 catch에서 502가 된다
+    throw e;
+  }
+
+  // 200을 받았는데 살아있다는 표지가 없다 = 소프트 404. 확정된 삭제다.
+  return { name: null, videos: [], state: "gone", verified: true };
 }
 
 // ────────────────────────── 공통: 텍스트 가져오기 (엣지 캐시 사용) ──────────────────────────

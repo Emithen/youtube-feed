@@ -17,6 +17,13 @@
 //  ⭐ "죽었다"는 throw가 아니다. 그건 **알아낸 사실**이라 정상 응답으로 온다.
 //     예전엔 이 셋이 전부 502 한 덩어리였고, 그래서 죽은 채널을 골라낼 방법이 없었다.
 //
+// ── 2026-08-21: 판정을 얼마나 믿을 것인가 ──
+//  `gone`에 `verified`가 붙어 온다. Worker가 채널 페이지에 따로 확인해서 확정했으면 true.
+//  **없으면 믿지 않는다** — 옛 Worker(검증 없이 404를 gone으로 확정하던 것)일 수 있고,
+//  그 오진에 화면의 캐시를 지워버리면 안 된다. 없는 필드를 "아니오"로 읽는 것이라
+//  옛 Worker와 새 화면이 섞여 있어도 안전하다(추가만 하는 계약의 값).
+//  → 유튜브 RSS가 일시 장애로 404를 뿌리는 일이 실제로 있다. 그때 Worker는 이제 502를 준다.
+//
 //  ⚠️ 아래 notFound 판정은 2026-08-16까지 **한 번도 참이 된 적이 없었다.** 조건이
 //   `res.status === 404 || /찾을 수 없|not ?found/i` 였는데 Worker는 항상 502를 줬고,
 //   메시지는 "못 찾았어"라 정규식과 글자가 달랐다. 상태코드가 뜻을 갖게 된 지금은
@@ -31,8 +38,18 @@ const BASE = "https://yt-rss.javer1155.workers.dev";
 export const LIMIT = 6; // 채널당 보여줄 최신 영상 수 (본 영상이 흐려지므로 3개는 너무 적었다)
 
 // 모든 호출이 지나가는 길목. URL 조립·JSON 파싱·에러 규약을 여기서만 정한다.
-async function get<T>(path: string, params: Record<string, string>): Promise<T> {
-  const res = await fetch(`${BASE}${path}?` + new URLSearchParams(params));
+//
+// fresh=true … **브라우저 캐시를 건너뛴다.** 사용자가 손으로 "다시 불러오기"를 눌렀을 때만 쓴다.
+//  왜 필요했나: 응답에 `Cache-Control: max-age=600`이 붙어 있어서, 실패한 뒤 그냥 다시 부르면
+//  네트워크로 나가지도 않고 **방금 그 실패가 그대로 재생됐다.** 새로고침(F5)으로도 안 풀렸다.
+//
+//  ⚠️ 2026-08-21에 Worker가 `no-store`로 바뀌어서 **새 Worker 상대로는 이게 무의미하다.**
+//   그래도 남겨둔다: Worker는 대시보드에 손으로 붙여넣는 것이라 옛 Worker가 살아 있는
+//   기간이 있고, 그동안은 이 한 줄이 유일하게 캐시를 뚫는 수단이다. (`verified`와 같은 이유)
+//   옛 Worker가 완전히 사라지면 이 인자도 같이 지운다.
+async function get<T>(path: string, params: Record<string, string>, fresh = false): Promise<T> {
+  const url = `${BASE}${path}?` + new URLSearchParams(params);
+  const res = await fetch(url, fresh ? { cache: "reload" } : {});
   // 에러 응답도 { error: "..." } 모양이라 일단 JSON으로 읽어본다.
   // 파싱 자체가 실패하면(HTML 에러 페이지 등) 빈 객체로 두고 아래에서 상태코드로 말한다.
   const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -48,5 +65,5 @@ async function get<T>(path: string, params: Record<string, string>): Promise<T> 
 
 // ch: 채널ID / @핸들 / 채널URL 아무거나. Worker가 알아서 해석한다.
 // → { channelId, name, videos: [{id, title, link, date, published}] }
-export const fetchChannel = (ch: string) =>
-  get<ChannelFeed>("/rss", { ch, limit: String(LIMIT) });
+export const fetchChannel = (ch: string, fresh = false) =>
+  get<ChannelFeed>("/rss", { ch, limit: String(LIMIT) }, fresh);

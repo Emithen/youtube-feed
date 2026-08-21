@@ -5,22 +5,34 @@
 //  채널 목록이 바뀌기 전까지 다시 안 받는다(epoch 비교). 옛 코드의 `feedRendered`와 같은 뜻인데,
 //  깃발을 손으로 내리는 대신 **무엇이 바뀌면 낡는지**를 epoch가 이름으로 말해준다.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import * as store from "../lib/storage";
 import * as worker from "../lib/worker";
 import { isNew, videoKey } from "../lib/video";
 import type { Channel, ChannelState, Video } from "../lib/types";
-import { SectionTitle } from "../ui";
+import { SectionTitle, btnGhostSm } from "../ui";
 
 // ── Worker의 판정(state) → 화면에 띄울 한 줄 ──
 // 문장을 여기서 만드는 이유: Worker는 "무슨 일이 있었나"만 알고, "뭐라고 말할까"는
 // 화면마다 다르다(피드 vs 채널 추가 폼). lib/worker.ts 머리의 경계 규칙 그대로다.
 const STATE_TEXT: Record<ChannelState, string> = {
-  gone: "(채널이 없어졌어 — 삭제·정지된 것 같아)",
+  gone: "(채널이 없어졌어 — 삭제·정지된 걸 확인했어)",
   empty: "(아직 공개된 영상이 없어)",
 };
 
-// 받아온 결과 한 칸. 영상이 있거나, 할 말(note)이 있거나 둘 중 하나다.
+// ⭐ **확인되지 않은 판정에는 확인되지 않았다고 쓴다** (2026-08-21).
+//  Worker가 `verified` 없이 `gone`을 보내면 옛 Worker다 — 유튜브 RSS의 일시 404를
+//  그대로 "삭제됨"으로 확정하던 시절의 것이라 사실인지 알 수 없다.
+//  **모르는 것을 아는 척하지 않는다**: 문장도 단정하지 않고, 아래 영상도 지우지 않는다.
+const UNVERIFIED_GONE = "(채널이 없어졌을 수도 있어 — 확인이 안 됐어)";
+
+// 못 받아왔지만 지난번 것이 남아 있을 때. **낡았다는 사실을 말하고** 보여준다 —
+// 조용히 옛 데이터를 내놓으면 사용자는 그게 최신인 줄 안다.
+const STALE = "(지금은 못 불러왔어 — 아래는 지난번에 받아둔 것)";
+
+// 받아온 결과 한 칸.
+// ⚠️ note와 videos는 **배타가 아니다** (2026-08-21). "낡은 목록을 보여주면서 낡았다고
+//  말하기"가 필요해지면서 둘이 함께 있는 경우가 생겼다.
 export type Loaded = { videos: Video[]; note?: string };
 
 function VideoRow({
@@ -38,6 +50,13 @@ function VideoRow({
   const real = !!v.link && v.link !== "#";
   const badge = isNew(v) && !seen; // 이미 본 영상이면 NEW를 감춘다 — 본 것이 우선
 
+  // ⭐ 안내 줄은 **영상처럼 보이면 안 된다** (2026-08-21). note와 videos가 같은 목록에
+  //  함께 나오게 되면서(낡은 목록 + 낡았다는 안내) 둘의 생김새가 같으면 안내가 여섯 번째
+  //  영상처럼 읽힌다. 누를 수 없는 것을 누를 수 있게 그리지 않는다 — 작고 흐리게.
+  if (!real) {
+    return <p className="my-[7px] text-[.9rem] text-muted">{v.title}</p>;
+  }
+
   return (
     <p className="my-[7px]">
       {/* NEW 배지는 줄 맨 앞에 둬야 목록을 훑을 때 눈에 띈다 */}
@@ -50,7 +69,7 @@ function VideoRow({
         href={v.link}
         target="_blank"
         rel="noopener"
-        onClick={real ? onOpen : undefined}
+        onClick={onOpen}
         className={
           "text-[1.05rem] no-underline text-accent font-semibold hover:underline " +
           (seen ? "opacity-45 font-medium" : "")
@@ -61,22 +80,20 @@ function VideoRow({
         {v.title}
       </a>
       {v.date && <small className={"text-muted " + (seen ? "opacity-60" : "")}> {v.date}</small>}
-      {real && (
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-pressed={seen}
-          title={seen ? "본 영상 — 눌러서 해제" : "안 본 영상 — 눌러서 봤음 표시"}
-          aria-label={seen ? "본 영상 — 눌러서 해제" : "안 본 영상 — 눌러서 봤음 표시"}
-          className={
-            "ml-2 px-1 text-[.85rem] leading-none bg-transparent border-0 cursor-pointer " +
-            (seen ? "text-accent opacity-90" : "text-muted opacity-55 hover:opacity-100")
-          }
-        >
-          {/* 색만이 아니라 기호로도 구분한다 (채널 토글의 ☑/☐ 와 같은 규칙) */}
-          {seen ? "✓" : "○"}
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={seen}
+        title={seen ? "본 영상 — 눌러서 해제" : "안 본 영상 — 눌러서 봤음 표시"}
+        aria-label={seen ? "본 영상 — 눌러서 해제" : "안 본 영상 — 눌러서 봤음 표시"}
+        className={
+          "ml-2 px-1 text-[.85rem] leading-none bg-transparent border-0 cursor-pointer " +
+          (seen ? "text-accent opacity-90" : "text-muted opacity-55 hover:opacity-100")
+        }
+      >
+        {/* 색만이 아니라 기호로도 구분한다 (채널 토글의 ☑/☐ 와 같은 규칙) */}
+        {seen ? "✓" : "○"}
+      </button>
     </p>
   );
 }
@@ -86,6 +103,9 @@ export default function Feed({
   epoch,
   loaded,
   claimLoad,
+  invalidateLoad,
+  takeFresh,
+  onRefresh,
   onResult,
   onDelete,
   hasWatched,
@@ -97,6 +117,11 @@ export default function Feed({
   loaded: Record<string, Loaded>;
   /** 이 epoch를 내가 받아오겠다고 선점한다. 이미 선점됐으면 false. */
   claimLoad: (epoch: number) => boolean;
+  /** 선점을 도로 내린다 — 실패한 로드는 "받아온 것"이 아니다. */
+  invalidateLoad: () => void;
+  /** 이번 로드가 손으로 누른 것인가(=브라우저 캐시를 건너뛸 것인가). 한 번만 true. */
+  takeFresh: () => boolean;
+  onRefresh: () => void;
   onResult: (channelId: string, result: Loaded) => void;
   onDelete: (channelId: string) => void;
   hasWatched: (id: string) => boolean;
@@ -104,6 +129,10 @@ export default function Feed({
   toggleWatched: (id: string) => void;
 }) {
   const active = channels.filter(store.isActive);
+
+  // 받아오는 중인가. **"다시 불러오기"에 반응이 없으면 사용자는 눌린 줄도 모른다.**
+  // 결과 칸은 캐시 때문에 안 비어 있을 수 있어서, 진행 표시가 따로 필요하다.
+  const [busy, setBusy] = useState(false);
 
   // ⚠️ **결과도 epoch도 App이 들고 있다.** 여기 두면 안 되는 이유가 둘이다:
   //  ① 탭을 옮기면 이 컴포넌트가 통째로 사라진다 → 돌아올 때마다 채널 수만큼 다시 요청.
@@ -113,9 +142,16 @@ export default function Feed({
   //     그래서 진행 중인 요청을 취소하지 않는다 — 결과는 늦게 와도 그냥 App에 담긴다.
   //     대신 **중복 실행은 claimLoad(ref)가 동기적으로 막는다.**
   useEffect(() => {
+    if (active.length === 0) return; // 받아올 게 없다
     if (!claimLoad(epoch)) return; // 이 목록은 이미 누가 받아오고 있다 — 요청을 아낀다
 
+    const fresh = takeFresh(); // claimLoad 뒤에 부른다 — 두 번째 실행이 삼키면 안 된다
     const cache = store.loadCache();
+    let pending = active.length;
+    setBusy(true);
+    const done = () => {
+      if (--pending === 0) setBusy(false);
+    };
 
     for (const ch of active) {
       // 캐시가 있으면 즉시 보여주고, 뒤에서 조용히 갱신해 교체한다 → 체감 속도
@@ -123,9 +159,18 @@ export default function Feed({
       if (cached) onResult(ch.channelId, { videos: cached.videos });
 
       worker
-        .fetchChannel(ch.channelId)
+        .fetchChannel(ch.channelId, fresh)
         .then((data) => {
-          // 죽었거나 비었으면 그 사실을 한 줄로 알린다. **캐시에는 넣지 않는다** —
+          // ⭐ **확인되지 않은 판정으로 데이터를 지우지 않는다** (2026-08-21).
+          //  옛 Worker는 유튜브 RSS의 일시 404를 그대로 gone으로 확정해 보냈다. 그 오진에
+          //  캐시된 영상까지 덮어써서 화면이 통째로 비었다 — 네트워크 실패(catch)는 캐시를
+          //  지켰는데 **오진이 더 파괴적이었다.** 미확인 판정은 이제 덧붙이기만 한다.
+          if (data.state === "gone" && !data.verified) {
+            onResult(ch.channelId, { videos: cached?.videos ?? [], note: UNVERIFIED_GONE });
+            invalidateLoad(); // 확정이 아니다 → 다음 방문에 다시 물어본다
+            return;
+          }
+          // 확인된 gone·empty는 그 사실을 한 줄로 알린다. **캐시에는 넣지 않는다** —
           // 채널이 되살아나거나 영상이 올라오면 다음 방문에 바로 반영돼야 하고,
           // 빈 배열을 캐시하면 그 자리가 "제목만 있는 빈 칸"으로 굳는다.
           if (data.state) {
@@ -136,10 +181,15 @@ export default function Feed({
           onResult(ch.channelId, { videos: data.videos });
         })
         .catch((err: Error) => {
-          // 캐시가 있으면 옛 것이라도 보여주는 편이 낫다 — 부분 실패 격리
-          if (cached) return;
-          onResult(ch.channelId, { videos: [], note: "(불러오기 실패: " + err.message + ")" });
-        });
+          invalidateLoad(); // 실패는 "받아온 것"이 아니다 — 다음 방문에 다시 받는다
+          // 캐시가 있으면 옛 것이라도 보여주는 편이 낫다(부분 실패 격리).
+          // 다만 **낡았다는 사실은 말한다** — 조용히 내놓으면 최신인 줄 안다.
+          onResult(ch.channelId, {
+            videos: cached?.videos ?? [],
+            note: cached ? STALE : "(불러오기 실패: " + err.message + ")",
+          });
+        })
+        .finally(done);
     }
     // active는 매 렌더 새 배열이라 의존성에 넣으면 무한 루프가 된다.
     // "언제 다시 받아야 하는가"는 epoch 하나가 이미 답한다.
@@ -157,14 +207,31 @@ export default function Feed({
 
   return (
     <div>
-      <p className="text-[.8rem] text-muted tracking-[.04em] mt-6 mb-0">— 내 채널 —</p>
+      <div className="flex items-center gap-2.5 mt-6">
+        <p className="text-[.8rem] text-muted tracking-[.04em] m-0">— 내 채널 —</p>
+        {/* 실패했을 때 사용자가 할 수 있는 일이 여기 하나뿐이다 (2026-08-21).
+            그전에는 탭을 옮겨도(claimLoad) 새로고침해도(브라우저 캐시) 다시 안 받아서
+            **기다리는 것 말고 방법이 없었다.** 이 버튼은 그 두 잠금을 함께 푼다. */}
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={busy}
+          className={btnGhostSm + " disabled:opacity-50 disabled:cursor-default"}
+        >
+          {busy ? "불러오는 중…" : "↻ 다시 불러오기"}
+        </button>
+      </div>
       {active.map((ch) => {
         const result = loaded[ch.channelId];
         // 아직 아무것도 못 받았으면 자리표시자. 링크가 "#"이라 ✓/○가 안 붙는다.
+        // ⚠️ note와 videos를 **함께** 그린다 (2026-08-21). 예전엔 note가 있으면 영상을
+        //  통째로 갈아치웠는데, 그게 오진 하나로 멀쩡한 목록이 사라지던 경로였다.
+        //  이제 안내는 맨 윗줄에 얹히고 영상은 그 아래에 그대로 남는다.
         const rows: Video[] = result
-          ? result.note
-            ? [{ id: "", title: result.note, link: "#", date: "" }]
-            : result.videos
+          ? [
+              ...(result.note ? [{ id: "", title: result.note, link: "#", date: "" }] : []),
+              ...result.videos,
+            ]
           : [{ id: "", title: "불러오는 중…", link: "#", date: "" }];
 
         return (

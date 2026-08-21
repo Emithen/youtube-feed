@@ -100,8 +100,17 @@ export default function Channels({
 
       // 죽은 채널은 추가해봐야 영원히 빈 칸이고, 이름조차 못 받는다(name: null).
       // ⚠️ 이건 throw가 아니라 **정상 응답**으로 온다 — catch에 걸리지 않으니 여기서 막는다.
+      //
+      // ⚠️ **확인된 gone만 막는다** (2026-08-21). 옛 Worker는 유튜브 RSS의 일시 404를
+      //  그대로 gone으로 확정해서 보냈고, 그동안 **살아있는 채널을 추가할 수 없었다**
+      //  ("그 채널은 없어졌어"라는 틀린 안내까지 붙여서). 확인 안 된 판정으로 사용자의
+      //  행동을 막지 않는다 — 막는 대신 **모른다고 말하고 다시 해보게 한다.**
       if (data.state === "gone") {
-        setAddStatus("그 채널은 없어졌어 (삭제·정지된 것 같아).");
+        setAddStatus(
+          data.verified
+            ? "그 채널은 없어졌어 (삭제·정지된 걸 확인했어)."
+            : "지금은 확인이 안 돼 (유튜브 쪽이 불안정할 수 있어). 잠시 뒤 다시 해줘."
+        );
         return;
       }
       if (channels.some((c) => c.channelId === data.channelId)) {
