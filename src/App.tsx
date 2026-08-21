@@ -118,7 +118,7 @@ export default function App() {
             className={
               "flex-1 px-1 py-2.5 text-center text-[.9rem] font-semibold no-underline " +
               "border-b-2 -mb-px " + // 밑줄이 컨테이너 선 위에 겹치게
-              (screen === name ? "text-accent border-accent" : "text-muted border-transparent")
+              (screen === name ? "text-link border-accent" : "text-muted border-transparent")
             }
           >
             {TAB_LABEL[name]}
@@ -136,7 +136,6 @@ export default function App() {
           takeFresh={takeFresh}
           onRefresh={refreshFeed}
           onResult={onResult}
-          onDelete={(channelId) => saveChannels(channels.filter((c) => c.channelId !== channelId))}
           hasWatched={watched.has}
           markWatched={watched.mark}
           toggleWatched={watched.toggle}

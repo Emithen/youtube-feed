@@ -14,9 +14,32 @@
  *   ③ public/manifest.json 의 theme_color         ④ public/icons/*.svg 의 fill
  */
 @theme {
-  --color-accent: #4a90e2; /* 링크·버튼·강조 막대 */
-  --color-accent-ink: #fff; /* 강조색 위에 얹는 글자 */
+  --color-accent: #4a90e2; /* 강조색 **자체**. 이제 바탕·테두리·막대에만 쓴다 */
+  --color-accent-ink: #fff; /* accent 바탕 위에 얹는 글자 */
+
+  /* ⭐ **색 하나가 두 가지 일을 겸하고 있었다** (2026-08-22).
+     --accent 는 「바탕」(버튼·배지·탭 밑줄)과 「글자」(링크·영상 제목) 양쪽에 쓰였는데,
+     그 둘은 **대비 기준이 다르다**. 흰 배경에서 #4a90e2 는 3.29:1 이라
+     본문 크기 글자의 AA(4.5:1)에 미달한다 — 영상 제목은 1.05rem semibold 라
+     「큰 글자」 예외(18.66px 굵게)에도 못 미친다. 다크는 5.40:1 로 이미 통과였다.
+     → **역할이 둘이면 토큰도 둘이다.** 값을 바꾸는 게 아니라 이름을 하나 더 만든다.
+
+     ⭐ 그래서 --accent 값 자체는 **한 글자도 안 바뀐다** → CSS 밖 네 군데
+     (favicon data URI · theme-color · manifest.json · icons/*.svg)를 안 건드린다.
+
+     ⭐ light-dark() 는 :root 의 `color-scheme: light dark` 를 읽어서 갈린다.
+     그걸 2026-08-05에 이미 켜뒀으므로 **미디어 쿼리 없이 값 자리에서 끝난다.**
+     (더 넓게 받아야 하면 prefers-color-scheme 로 이 둘만 덮으면 된다) */
+  --color-link: light-dark(#2f6fd0, #7fb3f2); /* 글자로 쓰는 파랑. 4.88:1 / 8.15:1 */
+  --color-on-link: light-dark(#fff, #0b0d11); /* --color-link 바탕 위에 얹는 글자 */
   --color-muted: #8a8a8a; /* 날짜·안내·보조 문구 */
+
+  /* ⚠️ **--muted 는 본문에 못 쓴다.** #8a8a8a 는 흰 배경에서 3.45:1 이라 AA(4.5) 미달이다.
+     보조 문구(작고 짧은 것)에는 그대로 두되, **본 영상 제목처럼 여전히 내용인 글자**를
+     한 단 낮출 때는 이쪽을 쓴다 — 4.97:1 / 6.78:1.
+     ⭐ 「흐리게 한다」를 「색을 낮춘다」로 바꾸려면 낮춘 색도 읽혀야 한다.
+        opacity 를 걷어내고 --muted 를 쓰면 미달을 미달로 바꾸는 것뿐이다. */
+  --color-ink-muted: light-dark(#667085, #949cab); /* 덜 중요하지만 여전히 본문인 글자 */
   --color-line: #8886; /* 입력칸·고스트 버튼 테두리 */
   --color-line-faint: #8883; /* 섹션 상자 테두리 (더 옅다) */
   --color-danger: #c0392b; /* 삭제 */

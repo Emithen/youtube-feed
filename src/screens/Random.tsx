@@ -121,7 +121,7 @@ export default function Random({
             rel="noopener"
             // 열어보면 본 것으로 기록 → 다음 뽑기 후보에서 자동으로 빠진다
             onClick={() => markWatched(picked.id)}
-            className="text-[1.05rem] no-underline text-accent font-semibold hover:underline"
+            className="text-[1.05rem] no-underline text-link font-semibold hover:underline"
           >
             {picked.title}
           </a>

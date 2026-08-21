@@ -7,8 +7,10 @@
 
 import type { ReactNode } from "react";
 
+// ⚠️ 바탕이 accent 가 아니라 **link** 다. 버튼 글자는 1rem semibold 라 「큰 글자」가
+//  아니고, #4a90e2 바탕에 흰 글자는 3.29:1 로 미달이었다 (index.css 토큰 주석).
 export const btn =
-  "px-3.5 py-2 rounded-lg border-0 bg-accent text-accent-ink font-semibold text-base " +
+  "px-3.5 py-2 rounded-lg border-0 bg-link text-on-link font-semibold text-base " +
   "cursor-pointer disabled:opacity-50 disabled:cursor-default";
 
 // 고스트 = 주된 행동이 아닌 것(다시 뽑기·전부 끄기·내려받기). 강조색을 안 쓴다.
@@ -26,7 +28,7 @@ export const input =
 export const boxed = "border border-line-faint rounded-[10px] px-3.5 py-2.5 mt-3.5 mb-[22px]";
 
 // 링크는 크고 굵게 — 폰에서 누르기 쉬우라고 (옛 base 레이어의 a 규칙)
-export const link = "text-[1.05rem] no-underline text-accent font-semibold hover:underline";
+export const link = "text-[1.05rem] no-underline text-link font-semibold hover:underline";
 
 /** 진행·결과 문구. min-h로 자리를 미리 잡아 글자가 생길 때 화면이 안 튀게 한다. */
 export function Status({ children }: { children?: ReactNode }) {

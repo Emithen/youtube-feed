@@ -37,7 +37,7 @@ function ChannelRow({
         className={
           "flex-none text-[1.1rem] leading-none bg-transparent border-0 cursor-pointer " +
           "px-2.5 py-3 -mx-1.5 -my-3 " +
-          (on ? "text-accent" : "text-muted opacity-60")
+          (on ? "text-link" : "text-muted opacity-60")
         }
       >
         {/* 색만으로 구분하지 않는다 — 기호(☑/☐)로도 읽히게 (본 영상 ✓/○ 와 같은 규칙) */}
@@ -174,7 +174,7 @@ export default function Channels({
           ) : (
             <Hint className="!mt-0">
               구독 목록에서 고르려면{" "}
-              <a href="#/settings" className="text-accent font-semibold">
+              <a href="#/settings" className="text-link font-semibold">
                 ⚙️ 설정
               </a>
               에서 구글 로그인하세요.
