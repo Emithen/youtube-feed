@@ -41,12 +41,17 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
 import { createHash, randomBytes } from "node:crypto";
-// ⚠️ **확장자를 반드시 적는다.** `api/`는 `moduleResolution: nodenext`라 상대 경로에 확장자가
-//  필요하다(`src/`는 bundler 모드라 안 쓴다 — 그래서 두 폴더의 import 모양이 다르다).
-//  ⛔ TS가 제안하는 `.js`를 쓰면 **타입체크는 통과하는데 실행이 안 된다** — 그런 파일이 없어서
-//   Node가 못 찾는다. `allowImportingTsExtensions`가 켜져 있으니 `.ts`를 그대로 적는다.
-//   2026-08-25에 실제로 걸렸다: 타입체크만 믿었으면 배포에서 터졌을 자리다.
-import { ALLOWED_ORIGINS, CLIENT_ID } from "../src/lib/oauth-config.ts";
+// ⚠️ **확장자는 `.js`다. 오타가 아니다.** `api/`는 `moduleResolution: nodenext`라 상대 경로에
+//  **출력 확장자**를 적어야 한다(`src/`는 bundler 모드라 확장자를 안 쓴다 — 그래서 두 폴더의
+//  import 모양이 다르다). Vercel이 `oauth-config.ts`를 `oauth-config.js`로 컴파일해 함수에
+//  같이 넣어주고, **import 문자열은 안 고친다** — 그래서 `.js`를 가리켜야 맞는다.
+//
+//  ⛔ **`.ts`로 바꾸지 마라.** 2026-08-25에 실제로 그렇게 했다가 배포가 죽었다
+//   (`ERR_MODULE_NOT_FOUND: /var/task/src/lib/oauth-config.ts`). 바꾼 이유는 «로컬에서
+//   `node api/auth.ts`가 안 돈다»였는데, **bare node는 애초에 배포 환경이 아니다** —
+//   Vercel이 하는 컴파일을 안 하니 당연히 다르다. 확인하려면 `npx vercel build` 후
+//   `.vercel/output/functions/api/auth.func/`를 본다. 그게 실제로 배포되는 물건이다.
+import { ALLOWED_ORIGINS, CLIENT_ID } from "../src/lib/oauth-config.js";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 

@@ -27,7 +27,7 @@ import { createHash } from "node:crypto";
 //  4명 규모에 캡차·로그인 강제는 과하다는 판단(로드맵) → 신호등: 실제로 스팸이 들어올 때.
 // ⚠️ 목록을 여기 두지 않는다 (2026-08-25). api/auth.ts도 같은 목록이 필요해졌는데, 보안
 //  허용목록이 두 곳에 있으면 **한쪽만 고치는 날 조용히 갈라진다.** → 한 곳에서 읽는다.
-import { ALLOWED_ORIGINS } from "../src/lib/oauth-config.ts";
+import { ALLOWED_ORIGINS } from "../src/lib/oauth-config.js"; // ⚠️ .js가 맞다 — auth.ts 주석 참고
 
 const KINDS = ["bug", "idea", "etc"];
 const BODY_MAX = 1000;
