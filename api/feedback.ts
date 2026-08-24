@@ -22,20 +22,18 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
 import { createHash } from "node:crypto";
+// 남용 방어 ①. ⚠️ **약한 방어다** — Origin 헤더는 브라우저 밖에서 얼마든 위조된다.
+//  막는 것은 "남의 사이트에 붙은 폼이 여기로 쏘는 것"까지고, 스크립트는 못 막는다.
+//  4명 규모에 캡차·로그인 강제는 과하다는 판단(로드맵) → 신호등: 실제로 스팸이 들어올 때.
+// ⚠️ 목록을 여기 두지 않는다 (2026-08-25). api/auth.ts도 같은 목록이 필요해졌는데, 보안
+//  허용목록이 두 곳에 있으면 **한쪽만 고치는 날 조용히 갈라진다.** → 한 곳에서 읽는다.
+import { ALLOWED_ORIGINS } from "../src/lib/oauth-config.ts";
 
 const KINDS = ["bug", "idea", "etc"];
 const BODY_MAX = 1000;
 const NICK_MAX = 40;
 const PER_MINUTE = 5; // 같은 IP가 1분에 보낼 수 있는 건수
 
-// 남용 방어 ①. ⚠️ **약한 방어다** — Origin 헤더는 브라우저 밖에서 얼마든 위조된다.
-//  막는 것은 "남의 사이트에 붙은 폼이 여기로 쏘는 것"까지고, 스크립트는 못 막는다.
-//  4명 규모에 캡차·로그인 강제는 과하다는 판단(로드맵) → 신호등: 실제로 스팸이 들어올 때.
-const ALLOWED_ORIGINS = [
-  "https://youtube-feed-mu.vercel.app",
-  "http://localhost:8765",
-  "http://127.0.0.1:8765",
-];
 
 // meta는 **화이트리스트로만** 받는다. 클라이언트가 보낸 걸 그대로 jsonb에 부으면
 // 언젠가 보내면 안 되는 것이 딸려 들어온다(⛔ 채널 목록·풀·시청 기록은 개수만 온다).
