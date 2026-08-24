@@ -26,22 +26,27 @@ import type { AppError, Video } from "./types";
 
 // ── 구글 아이덴티티 서비스(GIS)의 모양 ──
 // 스크립트를 <script>로 불러오므로 타입이 따로 안 온다. 쓰는 만큼만 여기서 선언한다.
-type TokenResponse = { access_token?: string; expires_in?: string | number; error?: string };
-type TokenClient = {
-  callback: (resp: TokenResponse) => void;
-  requestAccessToken: (opts: { prompt: string }) => void;
-};
+//
+// ⭐ **2026-08-25에 토큰 모델 → 코드 모델로 갈아탔다.** 그전엔 `initTokenClient`로 액세스
+//  토큰을 브라우저가 직접 받았는데, 그 응답에는 **`id_token`이 없다**(인가만 하고 신원은
+//  안 준다). 서버가 "이 요청이 누구인지"를 알아야 해서 코드 모델로 옮겼다.
+//  → 이제 브라우저는 **인가 코드만** 받고, 토큰으로 바꾸는 일은 `/api/auth`가 한다.
+//    근거는 ROADMAP.md «🔐 인증 설계 확정».
+type CodeResponse = { code?: string; scope?: string; error?: string; error_description?: string };
+type CodeClient = { requestCode: () => void };
 
 declare global {
   interface Window {
     google?: {
       accounts?: {
         oauth2?: {
-          initTokenClient: (cfg: {
+          initCodeClient: (cfg: {
             client_id: string;
             scope: string;
-            callback: (resp: TokenResponse) => void;
-          }) => TokenClient;
+            ux_mode: "popup" | "redirect";
+            callback: (resp: CodeResponse) => void;
+            error_callback?: (err: { type?: string }) => void;
+          }) => CodeClient;
           revoke: (token: string, done: () => void) => void;
         };
       };
@@ -49,16 +54,23 @@ declare global {
   }
 }
 
-export const CLIENT_ID =
-  "60100393090-r2g4ml40ov9tkmjh2en99v1q3fasgafb.apps.googleusercontent.com";
+// ⚠️ `CLIENT_ID`는 이제 여기 없다 — **서버(`api/auth.ts`)도 같은 값이 필요해져서** 공유
+//  모듈로 옮겼다. 두 곳에 적어두면 어긋날 수 있고, 어긋나면 증상이 «aud 불일치»라
+//  진단이 엉뚱한 데로 간다.
+export { CLIENT_ID } from "./oauth-config";
+import { CLIENT_ID } from "./oauth-config";
 
-// 스코프 둘. **한 번의 로그인으로 둘 다 받는다** — 사용자에겐 여전히 버튼 하나다.
-//  ① youtube.readonly … 읽기 전용 하나로 구독·재생목록·영상 조회가 전부 커버된다
-//  ② drive.appdata    … **앱 전용 숨은 폴더에만** 접근한다(2026-08-04, 기기 동기화).
+// 스코프 셋. **한 번의 로그인으로 전부 받는다** — 사용자에겐 여전히 버튼 하나다.
+//  ① openid           … **신원**. 이게 있어야 서버가 ID 토큰을 받고 `sub`를 꺼낸다 (2026-08-25 추가)
+//  ② youtube.readonly … 읽기 전용 하나로 구독·재생목록·영상 조회가 전부 커버된다
+//  ③ drive.appdata    … **앱 전용 숨은 폴더에만** 접근한다(2026-08-04, 기기 동기화).
 //     사용자의 다른 드라이브 파일은 보이지도 않는다 — 드라이브 권한 중 가장 좁은 것.
-// ⚠️ 스코프를 늘리면 **동의 화면을 다시 받아야 한다.** 기존 사용자도 한 번은 로그인 버튼을
-//    눌러야 하고(silent는 실패한다), Cloud Console에서 **Drive API 활성화**도 필요하다.
+// ⛔ `email`·`profile`은 **일부러 안 받는다.** 필요한 건 `sub` 하나뿐이고,
+//    안 받으면 실수로 저장할 일도 없다(`api/auth.ts`가 다른 클레임을 안 읽는 것과 같은 이유).
+// ⚠️ 스코프를 늘리면 **동의 화면을 다시 받아야 한다.** ①을 더한 2026-08-25부터 기존
+//    사용자(테스터 4명 포함)도 한 번은 로그인 버튼을 눌러야 한다.
 const SCOPE = [
+  "openid",
   "https://www.googleapis.com/auth/youtube.readonly",
   "https://www.googleapis.com/auth/drive.appdata",
 ].join(" ");
@@ -67,7 +79,7 @@ const MAX_PAGES = 20; // 50개 × 20 = 최대 1000개 (Worker의 한도와 같�
 
 let token: string | null = null;
 let expiresAt = 0;
-let client: TokenClient | null = null;
+
 
 export const isSignedIn = () => !!token && Date.now() < expiresAt;
 
@@ -111,55 +123,108 @@ const listeners = new Set<(on: boolean) => void>();
 export const onAuthChange = (fn: (on: boolean) => void) => listeners.add(fn);
 const notify = () => listeners.forEach((fn) => fn(isSignedIn()));
 
+// ⭐ **실패를 종류로 가른다.** 「취소했다」와 「서버가 거절했다」는 사람이 할 일이 다르다 —
+//  앞은 다시 누르면 되고, 뒤는 설정을 봐야 한다. 07-31에 세운 «무엇이 실패했나보다
+//  어디까지 갔나» 규칙을 로그인에도 그대로 적용한다(90-gotchas 15).
+export type AuthResult = { ok: true } | { ok: false; reason: "cancelled" | "server" | "script"; message: string };
+
 // GIS(구글 아이덴티티 서비스) 스크립트는 index.html에서 비동기로 불러온다.
 // 버튼을 누른 시점에 아직 안 왔을 수 있어 잠깐 기다린다.
-async function ensureClient() {
-  if (client) return client;
-  if (!CLIENT_ID) throw new Error("CLIENT_ID가 비어 있어 (src/lib/youtube.ts 맨 위에 붙여넣어줘)");
-
+async function ensureGis() {
   for (let i = 0; i < 40 && !window.google?.accounts?.oauth2; i++) {
     await new Promise((r) => setTimeout(r, 50)); // 최대 2초
   }
-  if (!window.google?.accounts?.oauth2) throw new Error("구글 로그인 스크립트를 못 불러왔어");
-
-  client = window.google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: SCOPE,
-    callback: () => {}, // 실제 처리는 signIn()에서 매번 갈아끼운다
-  });
-  return client;
+  const gis = window.google?.accounts?.oauth2;
+  if (!gis) throw new Error("구글 로그인 스크립트를 못 불러왔어");
+  return gis;
 }
 
-// silent=true면 이미 동의한 경우에만 조용히 받아온다(동의 창을 띄우지 않는다).
-// 페이지를 열 때 이걸 먼저 시도하고, 실패하면 사용자가 버튼을 누르게 둔다.
-export async function signIn({ silent = false } = {}) {
-  const c = await ensureClient();
-  return new Promise((resolve) => {
-    c.callback = (resp: TokenResponse) => {
-      if (resp.error || !resp.access_token) {
-        resolve(false);
-        return;
-      }
-      token = resp.access_token;
-      // 만료 1분 전에 만료된 것으로 친다 (호출 중간에 끊기지 않게)
-      expiresAt = Date.now() + (Number(resp.expires_in) || 3600) * 1000 - 60_000;
-      saveToken();
-      notify();
-      resolve(true);
-    };
-    // prompt "" = 이미 동의했으면 창 없이, "consent" = 동의 창을 띄운다
-    c.requestAccessToken({ prompt: silent ? "" : "consent" });
-  });
-}
-
-export function signOut() {
-  if (token && window.google?.accounts?.oauth2) {
-    window.google.accounts.oauth2.revoke(token, () => {});
+// ⚠️ **`silent` 옵션이 사라졌다.** 코드 모델(`initCodeClient`)에는 `prompt` 파라미터가
+//  아예 없어서 「동의 창 없이 조용히」를 지시할 방법이 없다. 어차피 2026-08-15에 자동
+//  재발급을 걷어냈고(90-gotchas 21 — silent가 팝업을 열어 차단당했다) 부르는 곳도 없었다.
+//
+// ⭐ 클라이언트를 **매번 새로 만든다.** 예전엔 하나를 만들어두고 `callback`을 갈아끼웠는데,
+//  코드 모델은 그 필드를 갈아끼워도 되는지 문서가 보장하지 않는다. 만드는 데 네트워크가
+//  들지 않으므로 **보장되지 않는 것에 기대는 대신 매번 만든다.**
+export async function signIn(): Promise<AuthResult> {
+  let gis: NonNullable<NonNullable<NonNullable<Window["google"]>["accounts"]>["oauth2"]>;
+  try {
+    gis = await ensureGis();
+  } catch (e) {
+    return { ok: false, reason: "script", message: (e as Error).message };
   }
+
+  // 1단계: 팝업에서 **인가 코드만** 받는다. 토큰은 여기서 안 나온다.
+  const resp = await new Promise<CodeResponse | null>((resolve) => {
+    const client = gis.initCodeClient({
+      client_id: CLIENT_ID,
+      scope: SCOPE,
+      ux_mode: "popup", // ⛔ redirect로 바꾸면 페이지가 통째로 튕겨나가 화면 상태가 날아간다
+      callback: resolve,
+      // 팝업을 닫거나 브라우저가 막았을 때. 이게 없으면 promise가 영영 안 풀린다.
+      error_callback: () => resolve(null),
+    });
+    client.requestCode();
+  });
+
+  if (!resp || resp.error || !resp.code) {
+    if (resp?.error) console.warn("[auth] 코드 요청 실패:", resp.error, resp.error_description);
+    return { ok: false, reason: "cancelled", message: "로그인이 취소됐어." };
+  }
+
+  // 2단계: 코드를 내 서버로. **여기서 세션 쿠키가 심어진다**(HttpOnly라 JS는 못 읽는다).
+  // 같은 origin이라 쿠키는 알아서 오간다 — `credentials` 기본값이 same-origin이다.
+  let data: { accessToken?: string; expiresIn?: number; error?: string } = {};
+  try {
+    const r = await fetch("/api/auth", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: resp.code }),
+    });
+    data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.accessToken) {
+      console.warn("[auth] 서버가 코드를 거절했다:", r.status, data.error);
+      return { ok: false, reason: "server", message: data.error || "로그인을 완료하지 못했어." };
+    }
+  } catch (e) {
+    console.warn("[auth] 서버에 못 닿았다:", e);
+    return { ok: false, reason: "server", message: "서버에 연결하지 못했어." };
+  }
+
+  token = data.accessToken;
+  // 만료 1분 전에 만료된 것으로 친다 (호출 중간에 끊기지 않게)
+  expiresAt = Date.now() + (data.expiresIn || 3600) * 1000 - 60_000;
+  saveToken();
+  notify();
+  return { ok: true };
+}
+
+// ⭐ **로그아웃은 이제 두 곳을 끈다** (2026-08-25): 브라우저의 토큰과 **서버의 세션**.
+//  로컬만 지우면 화면은 로그아웃으로 보이는데 서버는 여전히 나로 알고 있다 —
+//  같은 브라우저를 쓰는 다음 사람이 내 데이터에 접근한다.
+//
+// ⚠️ 순서를 이렇게 잡은 이유: **로컬을 먼저 지운다.** 서버가 안 되는데 로그아웃 자체를
+//  막으면, 공용 컴퓨터에서 지금 당장 나가야 하는 사람이 못 나간다. 대신 서버 쪽이
+//  실패하면 **조용히 넘기지 않고 말해준다** — 그래야 사람이 다른 수를 쓴다.
+export async function signOut(): Promise<AuthResult> {
+  const revoked = token;
   token = null;
   expiresAt = 0;
   clearToken();
   notify();
+
+  let result: AuthResult = { ok: true };
+  try {
+    const r = await fetch("/api/auth", { method: "DELETE" });
+    if (!r.ok) result = { ok: false, reason: "server", message: "서버 세션을 못 끊었어." };
+  } catch {
+    result = { ok: false, reason: "server", message: "서버 세션을 못 끊었어 (연결 실패)." };
+  }
+
+  // ⚠️ 구글 쪽 동의까지 취소한다 → **다음 로그인 때 동의 화면이 다시 뜬다.** 원래 동작이고,
+  //  "로그아웃했는데 권한은 남아 있는" 상태를 안 만드는 쪽이 맞다고 본 것이다.
+  if (revoked) window.google?.accounts?.oauth2?.revoke(revoked, () => {});
+  return result;
 }
 
 // ────────────────────────── 호출 ──────────────────────────

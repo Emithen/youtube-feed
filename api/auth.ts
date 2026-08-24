@@ -6,8 +6,13 @@
 // ROADMAP.md의 «🔐 인증 설계 확정 (2026-08-25)»에 근거까지 적어뒀다.
 //
 // ── 계약 ──
-//  POST /api/auth   { code: "4/0Ab..." }
+//  POST   /api/auth   { code: "4/0Ab..." }
 //  → 200 { accessToken, expiresIn }  + Set-Cookie: sid=…  (HttpOnly)
+//
+//  DELETE /api/auth   (로그아웃)
+//  → 204  + Set-Cookie: sid=; Max-Age=0
+//  ⭐ **로컬 토큰만 지우면 안 된다.** 서버 세션이 살아 있으면 같은 브라우저를 쓰는 다음 사람이
+//   여전히 내 데이터에 접근한다. 로그아웃은 **양쪽을 다 끄는 것**이어야 한다.
 //
 //   400  code가 없거나 JSON이 아니다
 //   401  구글이 코드를 거절했다(만료·재사용·위조) 또는 ID 토큰 검사 실패
@@ -51,6 +56,23 @@ const ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
 const COOKIE = "sid";
 const SESSION_DAYS = 30; // 슬라이딩. 짧게 잡을 이유가 없다 — 만료돼도 앱 재로그인일 뿐이다
 
+// ⚠️ 로그인과 로그아웃이 **같은 속성으로** 쿠키를 써야 한다. 하나라도 다르면(특히 Path)
+//  브라우저가 다른 쿠키로 보고 **지우기가 조용히 실패한다** — 그래서 한 함수에서 만든다.
+// ⚠️ `Secure`는 https일 때만. 로컬은 `http://localhost:8765`인데 브라우저마다 localhost를
+//  보안 컨텍스트로 봐주는 정도가 달라서, 무조건 붙이면 **로컬에서만 쿠키가 조용히 안 잡힌다.**
+// ⭐ `SameSite=Lax`로 CSRF를 막는다. API가 `/api/*`로 **같은 origin**이라 깔끔하게 듣는다 —
+//  08-17 Vercel 이전으로 공짜로 생긴 이점이다(그전엔 화면과 서버가 다른 곳에 있었다).
+function cookie(origin: string, value: string, maxAgeSec: number) {
+  return [
+    `${COOKIE}=${value}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    ...(origin.startsWith("https://") ? ["Secure"] : []),
+    `Max-Age=${maxAgeSec}`,
+  ].join("; ");
+}
+
 // 구글이 코드를 내주는 응답. 쓰는 것만 적는다.
 type TokenExchange = {
   access_token?: string;
@@ -88,10 +110,21 @@ function readIdToken(jwt: string): string {
   return c.sub;
 }
 
+const sha256 = (v: string) => createHash("sha256").update(v).digest("hex");
+
+// 쿠키 헤더에서 sid만 꺼낸다. ⚠️ 값에 `=`가 들어갈 수 있어(base64url엔 없지만) 첫 `=`로만 자른다.
+function readCookie(header: string | undefined): string {
+  for (const part of (header || "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0 && part.slice(0, i).trim() === COOKIE) return part.slice(i + 1).trim();
+  }
+  return "";
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "POST만 받는다" });
+  if (req.method !== "POST" && req.method !== "DELETE") {
+    res.setHeader("Allow", "POST, DELETE");
+    return res.status(405).json({ error: "POST 또는 DELETE만 받는다" });
   }
 
   // ⚠️ **feedback.ts와 달리 Origin이 없으면 거절한다.** 거기선 Origin 없는 요청(curl·서버 간)을
@@ -110,6 +143,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // "왜 안 되지"를 배포된 곳에서 알아낼 방법이 없다(feedback.ts와 같은 이유).
     console.error("[auth] 환경변수 누락:", !dbUrl && "DATABASE_URL", !secret && "GOOGLE_CLIENT_SECRET");
     return res.status(500).json({ error: "서버 설정 문제" });
+  }
+
+  // ── 로그아웃 ──
+  // ⭐ 쿠키를 못 읽어도 **성공으로 답한다.** 로그아웃의 목적은 "끝난 상태"이지 "무언가를
+  //  지웠음"이 아니다. 이미 없으면 목적은 이미 달성돼 있다 — 여기서 404를 주면 화면이
+  //  "로그아웃 실패"를 띄우는데, 사실은 로그아웃돼 있다.
+  if (req.method === "DELETE") {
+    const raw = readCookie(req.headers.cookie);
+    if (raw) {
+      try {
+        const sql = neon(dbUrl);
+        await sql`delete from session where token_hash = ${sha256(raw)}`;
+      } catch (e) {
+        // ⚠️ 지우기가 실패하면 **쿠키를 만료시키지 않는다.** 브라우저에서만 사라지고 서버엔
+        //  살아 있으면 "로그아웃했는데 남의 브라우저에서 되살아나는" 최악이 된다.
+        console.error("[auth] 세션 삭제 실패:", e);
+        return res.status(500).json({ error: "로그아웃하지 못했어" });
+      }
+    }
+    res.setHeader("Set-Cookie", cookie(origin, "", 0));
+    return res.status(204).end();
   }
 
   let payload: Record<string, unknown> = {};
@@ -181,7 +235,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 쿠키에 담는 값은 여기서만 존재한다. DB에는 sha256만 들어간다 —
   // 세션 값은 그 자체가 신분증이라, 원본을 저장하면 DB 유출이 곧 전원 계정 탈취가 된다.
   const token = randomBytes(32).toString("base64url");
-  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const tokenHash = sha256(token);
 
   try {
     const sql = neon(dbUrl);
@@ -206,22 +260,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: "로그인 상태를 저장하지 못했어" });
   }
 
-  // ⚠️ `Secure`를 **https일 때만** 붙인다. 로컬은 `http://localhost:8765`인데, 브라우저마다
-  //  localhost를 보안 컨텍스트로 봐주는 정도가 달라서 무조건 붙이면 **로컬에서만 쿠키가
-  //  조용히 안 잡힌다.** 배포는 항상 https라 실제 보호는 그대로다.
-  // ⭐ SameSite=Lax로 CSRF를 막는다. API가 `/api/*`로 **같은 origin**이라 깔끔하게 듣는다 —
-  //  08-17 Vercel 이전으로 공짜로 생긴 이점이다(그전엔 화면과 서버가 다른 곳에 있었다).
-  res.setHeader(
-    "Set-Cookie",
-    [
-      `${COOKIE}=${token}`,
-      "Path=/",
-      "HttpOnly",
-      "SameSite=Lax",
-      ...(origin.startsWith("https://") ? ["Secure"] : []),
-      `Max-Age=${SESSION_DAYS * 24 * 60 * 60}`,
-    ].join("; "),
-  );
+  res.setHeader("Set-Cookie", cookie(origin, token, SESSION_DAYS * 24 * 60 * 60));
 
   // ⭐ 액세스 토큰은 **브라우저에 돌려준다.** 서버가 쥐고 프록시하지 않는다 —
   //  유튜브·드라이브 호출은 지금처럼 브라우저가 직접 하는 게 맞고(30-cors 참고),

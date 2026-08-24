@@ -61,16 +61,22 @@ export default function Settings({
   const [driveStatus, setDriveStatus] = useState("");
   const [driveBusy, setDriveBusy] = useState(false);
 
+  // ⭐ 로그인·로그아웃 둘 다 **결과를 받아서 말해준다** (2026-08-25). 그전엔 로그아웃이
+  //  무조건 "로그아웃했어."였는데, 이제는 서버 세션까지 끊어야 해서 **반쪽만 되는 경우가
+  //  생긴다.** 반쪽을 성공이라고 말하면 사람은 끝난 줄 안다.
   async function toggleAuth() {
-    if (signedIn) {
-      yt.signOut();
-      setAuthStatus("로그아웃했어.");
-      return;
-    }
     setAuthBusy(true);
-    setAuthStatus("구글 창을 여는 중…");
+    setAuthStatus(signedIn ? "로그아웃하는 중…" : "구글 창을 여는 중…");
     try {
-      setAuthStatus((await yt.signIn()) ? "" : "로그인이 취소됐어.");
+      const r = signedIn ? await yt.signOut() : await yt.signIn();
+      if (r.ok) {
+        setAuthStatus(signedIn ? "로그아웃했어." : "");
+      } else if (signedIn) {
+        // 브라우저에서는 이미 빠져나왔다 — 그 사실을 먼저 말하고, 남은 것을 말한다.
+        setAuthStatus("이 기기에서는 로그아웃했어. 다만 " + r.message);
+      } else {
+        setAuthStatus(r.message);
+      }
     } catch (e) {
       setAuthStatus("실패: " + (e as Error).message);
     } finally {
