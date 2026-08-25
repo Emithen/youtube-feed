@@ -19,5 +19,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "api"]
+  // api/는 여기서 빼고 api/tsconfig.json이 맡는다 — Vercel 빌더도 그 파일을 읽으므로
+  // 설정이 두 벌로 갈라지지 않는다.
+  "include": ["vite.config.ts"]
 }

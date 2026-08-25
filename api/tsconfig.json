@@ -1,0 +1,29 @@
+{
+  // api/ 전용 타입 설정. **여기 따로 두는 이유가 있다.**
+  // Vercel은 함수를 만들 때 진입점(api/*.ts)에서 위로 올라가며 첫 `tsconfig.json`을 찾는다.
+  // 그렇게 찾은 게 루트 tsconfig.json이면 거긴 `references`만 있고 compilerOptions가 없어서
+  // `types: ["node"]`가 없는 채로 검사한다 → process·Buffer·node:crypto가 전부 "없는 이름"이 된다.
+  // (그 검사는 실패해도 배포를 막지 않아 **조용히 로그에만 남는다** — 그래서 더 위험하다.)
+  // ⭐ 그러니 이 파일은 두 곳이 함께 읽는 하나의 원본이다: 로컬 `tsc -b`와 Vercel 함수 빌더.
+  "compilerOptions": {
+    "tsBuildInfoFile": "../node_modules/.tmp/tsconfig.api.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "skipLibCheck": true,
+
+    "module": "nodenext",
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    // ⚠️ `allowImportingTsExtensions`는 여기 넣으면 안 된다. Vercel은 검사할 때 noEmit을 강제로
+    //  끄는데, 그 옵션은 noEmit일 때만 허용이라 배포 로그에 새 에러(TS5096)가 뜬다.
+    //  api/는 어차피 상대 경로에 `.js`를 적으므로 필요도 없다.
+
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["."]
+}
