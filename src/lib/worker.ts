@@ -64,6 +64,9 @@ async function get<T>(path: string, params: Record<string, string>, fresh = fals
 }
 
 // ch: 채널ID / @핸들 / 채널URL 아무거나. Worker가 알아서 해석한다.
-// → { channelId, name, videos: [{id, title, link, date, published}] }
+// → { channelId, name, videos: [{id, title, link, date, published, short?}] }
+//
+// ⚠️ `short`(2026-08-29)는 **있을 때만 믿는다.** 없으면 «롱폼»이 아니라 «모른다»다 —
+//  옛 Worker이거나 Worker가 판정에 실패한 경우다. `verified`와 같은 규약이다.
 export const fetchChannel = (ch: string, fresh = false) =>
   get<ChannelFeed>("/rss", { ch, limit: String(LIMIT) }, fresh);

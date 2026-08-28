@@ -65,6 +65,18 @@ function VideoRow({
           NEW
         </span>
       )}
+      {/* 쇼츠 표시 (2026-08-29).
+          ⭐ **쇼츠에만 붙이고 롱폼엔 아무것도 안 붙인다.** 「롱폼」 배지를 만들면 배지가
+           없는 줄의 뜻이 둘이 된다 — 롱폼이거나, 판정을 못 했거나. 목록에서 눈에 띄어야
+           하는 쪽만 표시하면 그 애매함이 아예 안 생긴다.
+          ⚠️ 그래서 `v.short === true`일 때만 그린다. `undefined`(모른다)는 아무것도 아니다.
+          ⭐ 생김새는 NEW와 **일부러 다르게**: NEW는 채워진 강조색(새 소식), 이건 테두리만
+           둔 흐린 칩(분류표). 둘이 같은 모양이면 나란히 붙었을 때 하나로 읽힌다. */}
+      {v.short === true && (
+        <span className="inline-block mr-[7px] px-1.5 py-px rounded-[5px] border border-line text-muted text-[.68rem] font-bold tracking-[.04em] align-[2px]">
+          쇼츠
+        </span>
+      )}
       <a
         href={v.link}
         target="_blank"
