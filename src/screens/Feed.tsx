@@ -1,9 +1,8 @@
 // Feed.tsx — ② 메인 피드. 켜둔 채널의 최신 영상을 그린다.
 //
 // ⭐ 이 화면이 **유일하게 비싼 화면**이다 — 켜진 채널 수만큼 Worker 요청이 나간다.
-//  그래서 App이 `route === "feed"`일 때만 이걸 그리고, 한 번 받아온 결과는
-//  채널 목록이 바뀌기 전까지 다시 안 받는다(epoch 비교). 옛 코드의 `feedRendered`와 같은 뜻인데,
-//  깃발을 손으로 내리는 대신 **무엇이 바뀌면 낡는지**를 epoch가 이름으로 말해준다.
+//  그래서 App이 `route === "feed"`일 때만 그리고, 받아온 결과는 채널 목록이 바뀌기 전까지
+//  다시 안 받는다. **무엇이 바뀌면 낡는지**를 `epoch`가 이름으로 말해준다.
 
 import { useEffect, useState } from "react";
 import * as store from "../lib/storage";
@@ -20,19 +19,16 @@ const STATE_TEXT: Record<ChannelState, string> = {
   empty: "(아직 공개된 영상이 없어)",
 };
 
-// ⭐ **확인되지 않은 판정에는 확인되지 않았다고 쓴다** (2026-08-21).
-//  Worker가 `verified` 없이 `gone`을 보내면 옛 Worker다 — 유튜브 RSS의 일시 404를
-//  그대로 "삭제됨"으로 확정하던 시절의 것이라 사실인지 알 수 없다.
-//  **모르는 것을 아는 척하지 않는다**: 문장도 단정하지 않고, 아래 영상도 지우지 않는다.
+// ⭐ **확인되지 않은 판정에는 확인되지 않았다고 쓴다.** `verified` 없는 `gone`은 사실인지
+//  알 수 없다 → **모르는 것을 아는 척하지 않는다**: 문장도 단정하지 않고, 영상도 안 지운다.
 const UNVERIFIED_GONE = "(채널이 없어졌을 수도 있어 — 확인이 안 됐어)";
 
 // 못 받아왔지만 지난번 것이 남아 있을 때. **낡았다는 사실을 말하고** 보여준다 —
 // 조용히 옛 데이터를 내놓으면 사용자는 그게 최신인 줄 안다.
 const STALE = "(지금은 못 불러왔어 — 아래는 지난번에 받아둔 것)";
 
-// 받아온 결과 한 칸.
-// ⚠️ note와 videos는 **배타가 아니다** (2026-08-21). "낡은 목록을 보여주면서 낡았다고
-//  말하기"가 필요해지면서 둘이 함께 있는 경우가 생겼다.
+// 받아온 결과 한 칸. ⚠️ note와 videos는 **배타가 아니다** — "낡은 목록을 보여주면서
+// 낡았다고 말하기"가 필요하다.
 export type Loaded = { videos: Video[]; note?: string };
 
 function VideoRow({
@@ -50,9 +46,8 @@ function VideoRow({
   const real = !!v.link && v.link !== "#";
   const badge = isNew(v) && !seen; // 이미 본 영상이면 NEW를 감춘다 — 본 것이 우선
 
-  // ⭐ 안내 줄은 **영상처럼 보이면 안 된다** (2026-08-21). note와 videos가 같은 목록에
-  //  함께 나오게 되면서(낡은 목록 + 낡았다는 안내) 둘의 생김새가 같으면 안내가 여섯 번째
-  //  영상처럼 읽힌다. 누를 수 없는 것을 누를 수 있게 그리지 않는다 — 작고 흐리게.
+  // ⭐ 안내 줄은 **영상처럼 보이면 안 된다.** 같은 목록에 함께 나오므로 생김새가 같으면
+  //  안내가 여섯 번째 영상처럼 읽힌다 — 누를 수 없는 것을 누를 수 있게 그리지 않는다.
   if (!real) {
     return <p className="my-[7px] text-[.9rem] text-muted">{v.title}</p>;
   }
@@ -65,13 +60,11 @@ function VideoRow({
           NEW
         </span>
       )}
-      {/* 쇼츠 표시 (2026-08-29).
-          ⭐ **쇼츠에만 붙이고 롱폼엔 아무것도 안 붙인다.** 「롱폼」 배지를 만들면 배지가
-           없는 줄의 뜻이 둘이 된다 — 롱폼이거나, 판정을 못 했거나. 목록에서 눈에 띄어야
-           하는 쪽만 표시하면 그 애매함이 아예 안 생긴다.
-          ⚠️ 그래서 `v.short === true`일 때만 그린다. `undefined`(모른다)는 아무것도 아니다.
-          ⭐ 생김새는 NEW와 **일부러 다르게**: NEW는 채워진 강조색(새 소식), 이건 테두리만
-           둔 흐린 칩(분류표). 둘이 같은 모양이면 나란히 붙었을 때 하나로 읽힌다. */}
+      {/* ⭐ 쇼츠에만 붙이고 **롱폼엔 아무것도 안 붙인다.** 「롱폼」 배지를 만들면 배지 없는
+          줄의 뜻이 둘로 갈린다 — 롱폼이거나, 판정을 못 했거나.
+          ⚠️ 그래서 `=== true`로 본다. `undefined`는 «모른다»이지 «아니오»가 아니다.
+          생김새는 NEW와 일부러 다르게: NEW는 채워진 강조색(새 소식), 이건 테두리만 둔
+          흐린 칩(분류표). 같은 모양이면 나란히 붙었을 때 하나로 읽힌다. */}
       {v.short === true && (
         <span className="inline-block mr-[7px] px-1.5 py-px rounded-[5px] border border-line text-muted text-[.68rem] font-bold tracking-[.04em] align-[2px]">
           쇼츠
@@ -87,8 +80,7 @@ function VideoRow({
           (seen ? "opacity-45 font-medium" : "")
         }
       >
-        {/* 제목은 그냥 텍스트로 넣는다 — React가 이스케이프하므로 XSS 걱정이 없다
-            (옛 코드가 innerHTML 대신 textContent를 쓴 것과 같은 보호) */}
+        {/* 제목은 그냥 텍스트로 넣는다 — React가 이스케이프하므로 XSS 걱정이 없다 */}
         {v.title}
       </a>
       {v.date && <small className={"text-muted " + (seen ? "opacity-60" : "")}> {v.date}</small>}
@@ -173,10 +165,8 @@ export default function Feed({
       worker
         .fetchChannel(ch.channelId, fresh)
         .then((data) => {
-          // ⭐ **확인되지 않은 판정으로 데이터를 지우지 않는다** (2026-08-21).
-          //  옛 Worker는 유튜브 RSS의 일시 404를 그대로 gone으로 확정해 보냈다. 그 오진에
-          //  캐시된 영상까지 덮어써서 화면이 통째로 비었다 — 네트워크 실패(catch)는 캐시를
-          //  지켰는데 **오진이 더 파괴적이었다.** 미확인 판정은 이제 덧붙이기만 한다.
+          // ⭐ **확인되지 않은 판정으로 데이터를 지우지 않는다.** 네트워크 실패(catch)는
+          //  캐시를 지키는데 오진이 캐시를 덮어쓰면 그게 더 파괴적이다 — 덧붙이기만 한다.
           if (data.state === "gone" && !data.verified) {
             onResult(ch.channelId, { videos: cached?.videos ?? [], note: UNVERIFIED_GONE });
             invalidateLoad(); // 확정이 아니다 → 다음 방문에 다시 물어본다
@@ -221,9 +211,8 @@ export default function Feed({
     <div>
       <div className="flex items-center gap-2.5 mt-6">
         <p className="text-[.8rem] text-muted tracking-[.04em] m-0">— 내 채널 —</p>
-        {/* 실패했을 때 사용자가 할 수 있는 일이 여기 하나뿐이다 (2026-08-21).
-            그전에는 탭을 옮겨도(claimLoad) 새로고침해도(브라우저 캐시) 다시 안 받아서
-            **기다리는 것 말고 방법이 없었다.** 이 버튼은 그 두 잠금을 함께 푼다. */}
+        {/* 실패했을 때 사용자가 할 수 있는 일이 이 버튼 하나다 — 탭 이동(claimLoad)도
+            새로고침(브라우저 캐시)도 다시 받아오지 못한다. 이게 그 두 잠금을 함께 푼다. */}
         <button
           type="button"
           onClick={onRefresh}
@@ -236,9 +225,8 @@ export default function Feed({
       {active.map((ch) => {
         const result = loaded[ch.channelId];
         // 아직 아무것도 못 받았으면 자리표시자. 링크가 "#"이라 ✓/○가 안 붙는다.
-        // ⚠️ note와 videos를 **함께** 그린다 (2026-08-21). 예전엔 note가 있으면 영상을
-        //  통째로 갈아치웠는데, 그게 오진 하나로 멀쩡한 목록이 사라지던 경로였다.
-        //  이제 안내는 맨 윗줄에 얹히고 영상은 그 아래에 그대로 남는다.
+        // ⚠️ note와 videos를 **함께** 그린다 — 안내는 맨 윗줄에 얹히고 영상은 그 아래 남는다.
+        //  note가 영상을 갈아치우면 오진 하나로 멀쩡한 목록이 사라진다.
         const rows: Video[] = result
           ? [
               ...(result.note ? [{ id: "", title: result.note, link: "#", date: "" }] : []),

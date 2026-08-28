@@ -1,15 +1,12 @@
 // storage.ts — localStorage에 저장되는 모든 것.
 //
-// 왜 한 곳에 모았나:
-//  키가 파일 여기저기에 흩어져 있으면 "이 앱이 저장하는 게 전부 뭐지?"에 답할 수 없다.
-//  다음 두 작업이 하필 그 질문을 정면으로 묻는다:
-//   ① 내보내기/가져오기 — 저장된 것 전부를 한 덩어리로 만들어야 한다
-//   ② 로그인 → 서버 저장 — 저장 위치를 브라우저에서 서버로 갈아끼워야 한다
-//  ②는 이 파일의 함수 속만 바꾸면 되도록, 화면은 localStorage를 직접 부르지 않는다.
+// 키를 한 곳에 모으는 이유: "이 앱이 저장하는 게 전부 뭐지?"에 한 파일로 답하기 위해서다.
+// 그래서 **화면은 localStorage를 직접 부르지 않는다** — 저장 위치를 서버로 갈아끼우는 일이
+// 이 파일 안쪽 교체로 끝나야 한다.
 //
 // ⚠️ 브라우저 데이터를 지우면 전부 사라진다. 계정이 없으므로 복구 수단이 없다.
-// ⚠️ **localStorage는 origin별로 격리된다.** 배포 주소가 바뀌면(github.io → Vercel)
-//    새 주소에서는 전부 빈 상태로 보인다. 옮기는 수단이 드라이브 동기화다.
+// ⚠️ **localStorage는 origin별로 격리된다.** 배포 주소가 바뀌면 새 주소에서는 전부 빈
+//    상태로 보인다 — 옮기는 수단이 드라이브 동기화다.
 
 import type { Channel, ExportData, ExportPayload, PoolVideo, Video } from "./types";
 
@@ -21,13 +18,11 @@ export const KEYS = {
   pool: "laterPool", // 나중에 볼 풀 { 영상ID: {...영상, addedAt, source} }
   playlistId: "playlistId", // watchme 재생목록 ID
   myFeedback: "myFeedback", // 내가 보낸 의견의 사본 (서버가 원본, 여기는 확인용)
-  feedbackDraft: "feedbackDraft", // 보내다 실패한 글 (사람이 쓴 글을 네트워크가 먹으면 안 된다)
+  feedbackDraft: "feedbackDraft", // 보내다 만 글 (사람이 쓴 글을 네트워크가 먹으면 안 된다)
 } as const;
 
-// ⚠️ **이 파일이 관리하지 않는 키가 하나 있다: `authToken`** (youtube.ts, 2026-08-15).
-//  일부러 뺐다 — 토큰은 앱 데이터가 아니라 세션이고, 무엇보다 `exportAll`에 실리면
-//  **드라이브에 올라가 버린다.** 여기 KEYS에 넣으면 그 사고가 한 줄 실수로 일어난다.
-//  "이 앱이 저장하는 게 전부 뭐지?"의 답은 여전히 여기서 다 읽을 수 있게 이 주석을 남긴다.
+// ⛔ **`authToken`은 여기 넣지 않는다** (youtube.ts가 따로 쥔다). 토큰은 앱 데이터가 아니라
+//  세션이고, KEYS에 들어오는 순간 `exportAll`에 실려 **드라이브로 올라간다.**
 
 const WATCHED_MAX = 1000; // 무한히 쌓이지 않게 상한 (넘으면 오래된 것부터 버림)
 
@@ -52,14 +47,9 @@ export const loadCache = (): Record<string, CacheEntry> => loadJSON(KEYS.cache, 
 export const saveCache = (c: Record<string, CacheEntry>) => saveJSON(KEYS.cache, c);
 
 // ── 선별: 이 채널을 피드에 그릴지 ──
-// ⭐ `active`가 **없는** 옛 데이터는 켜진 것으로 읽는다. 백업 계약과 같은 규칙(기존 필드는
-//    그대로 두고 추가만)이라, 이미 저장된 채널을 한 줄도 안 고치고 그대로 살릴 수 있다.
-//    그래서 이 기능을 켜도 첫 화면은 어제와 똑같다 — 끄기 전까지는 아무것도 안 변한다.
-//
-// ⭐ **2026-08-17에 뜻이 하나로 정리됐다.** 그전까지 `active`는 두 가지를 겸하고 있었다:
-//     ① "구독에서 가져왔지만 아직 안 고른 후보"   ② "골랐지만 지금은 피드에서 빼기"
-//   구독 목록이 저장 대상에서 빠지면서 ①이 사라졌다. 이제 `myChannels`는 **고른 것만**
-//   담고, `active`는 ②만 뜻한다 — "내 채널인데 지금은 안 보기".
+// `active`는 뜻이 하나다: **"내 채널인데 지금은 안 보기".** `myChannels`에는 고른 것만 담긴다.
+// ⭐ **필드가 없으면 켜진 것으로 읽는다** — 기존 필드는 두고 추가만 하는 규약이라,
+//  이미 저장된 채널을 한 줄도 안 고치고 그대로 쓴다.
 export const isActive = (ch: Channel) => ch.active !== false;
 
 // 한 채널만 켜고 끈다.
@@ -71,25 +61,23 @@ export function setActive(channelId: string, on: boolean) {
   saveChannels(list);
 }
 
-// 전부 켜기/끄기. 구독 319개를 손으로 끌 수는 없으니, 선별은 **전부 끄고 고르기**로 시작한다.
+// 전부 켜기/끄기. 수백 개를 손으로 끌 수는 없으니, 선별은 **전부 끄고 고르기**로 시작한다.
 export function setAllActive(on: boolean) {
   saveChannels(loadChannels().map((c) => ({ ...c, active: on })));
 }
 
 // ── 구독 목록 캐시 ──
-// ⭐ **저장이 아니라 캐시다.** 구독은 구글에 있는 것이고 우리는 "고를 때 잠깐 보여줄" 뿐이다.
-//  그래서 `channelCache`와 **같은 지위**로 둔다 — localStorage에 있지만 `exportAll`에서 빠진다.
-//  기존 규칙을 한 번 더 쓰는 것이다: **다시 만들 수 있는 것은 계약에 넣지 않는다.**
-//
-//  ⚠️ 구독을 *저장*하면 두 가지가 따라온다: ⓐ 드라이브로 실려 나가고
-//   ⓑ 유튜브에서 구독을 끊어도 앱에 유령처럼 남는다. 캐시는 둘 다 없다.
+// ⭐ **저장이 아니라 캐시다.** 구독은 구글에 있는 것이고 우리는 고를 때 잠깐 보여줄 뿐이라
+//  `channelCache`와 같은 지위다 — localStorage에 있지만 `exportAll`에서 빠진다.
+//  ⚠️ 저장으로 바꾸면 둘이 따라온다: ⓐ 드라이브로 실려 나가고 ⓑ 유튜브에서 구독을 끊어도
+//   앱에 유령처럼 남는다.
 export type CachedSubs = { at: number; items: { channelId: string; name: string }[] };
 
 export const loadSubs = (): CachedSubs | null => loadJSON<CachedSubs | null>(KEYS.subs, null);
 export const saveSubs = (items: CachedSubs["items"]) =>
   saveJSON(KEYS.subs, { at: Date.now(), items });
 
-// 채널 하나의 최신 결과를 캐시에 넣는다 (렌더와 폼 양쪽에서 쓰던 3줄)
+// 채널 하나의 최신 결과를 캐시에 넣는다 (렌더와 폼 양쪽에서 쓴다)
 export function cacheChannel(channelId: string, videos: Video[]) {
   const c = loadCache();
   c[channelId] = { at: Date.now(), videos };
@@ -141,10 +129,9 @@ export const clearPool = () => localStorage.removeItem(KEYS.pool);
 export const loadPlaylistId = () => localStorage.getItem(KEYS.playlistId) || "";
 export const savePlaylistId = (id: string) => localStorage.setItem(KEYS.playlistId, id);
 
-// ────────────────────────── 의견 (2026-08-20) ──────────────────────────
-// ⚠️ **둘 다 `channelCache`·`subsCache`와 같은 지위다** — localStorage에 있지만
-//  `exportAll`에 넣지 않는다. 넣으면 드라이브로 실려 나간다.
-//  근거도 같다: 원본은 딴 데(여기선 내 서버) 있고, 이건 "방금 뭘 보냈더라"를 보여줄 사본이다.
+// ────────────────────────── 의견 ──────────────────────────
+// ⚠️ 둘 다 `exportAll`에서 빠진다 — 넣으면 드라이브로 실려 나간다.
+//  캐시들과 지위는 같지만 **이유는 다르다**: 원본이 내 서버에 있고 여기 건 사본이다.
 
 export type SentFeedback = { at: number; kind: string; body: string };
 
@@ -157,8 +144,8 @@ export function addMyFeedback(item: SentFeedback) {
   return list;
 }
 
-// ⭐ 초안: **실패해도 입력한 글을 지우지 않는다.** 사람이 쓴 글을 네트워크 실패로
-//  날리는 게 이 기능에서 낼 수 있는 최악의 사고다. 성공하면 즉시 지운다.
+// ⭐ 초안: **실패해도 입력한 글을 지우지 않는다.** 사람이 쓴 글을 네트워크 실패로 날리는 게
+//  이 기능에서 낼 수 있는 최악의 사고다. 성공하면 즉시 지운다.
 export type Draft = { kind: string; body: string; nickname: string };
 
 export const loadDraft = (): Draft | null => loadJSON<Draft | null>(KEYS.feedbackDraft, null);
@@ -167,25 +154,18 @@ export const clearDraft = () => localStorage.removeItem(KEYS.feedbackDraft);
 
 // ────────────────────────── 내보내기 / 가져오기 ──────────────────────────
 // 브라우저 데이터를 지우면 전부 사라지는 문제의 대비책이자, 기기끼리 잇는 수단이다.
-// 이 함수 한 쌍이 주고받는 "JSON 한 장"이 그대로 드라이브에 올라간다 → drive.ts
-//
-// 원래는 파일로 내보내기/가져오기가 먼저 있었고 드라이브가 그 자리에 끼워졌다.
-// 파일 쪽은 2026-08-07에 지웠지만 **이 함수들은 그대로다** — 저장 위치만 바뀌었을 뿐이라
-// 애초에 여기엔 고칠 게 없었다. (계약을 밖에 둔 값을 여기서 한 번 더 돌려받은 셈)
+// 이 함수들이 주고받는 **"JSON 한 장"이 그대로 드라이브에 올라간다** → drive.ts
 
 export const EXPORT_VERSION = 1;
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 
-// ⚠️ `channelCache`·`subsCache`는 **일부러 뺀다.** 둘 다 언제든 다시 만들 수 있는 것이라
-// 옮길 가치가 없는데(Worker가·구글이 다시 준다) 크기는 제일 크다.
-// → *다시 만들 수 있는 것은 계약에 넣지 않는다.*
-//
-// ⚠️ `myFeedback`·`feedbackDraft`(2026-08-20)도 뺀다. **다만 이유가 다르다** —
-// 이건 다시 만들 수 있어서가 아니라 **원본이 내 서버에 있어서**다. 여기 것은 사본이고,
-// 초안은 이 기기에서 쓰다 만 글이라 다른 기기로 따라갈 이유가 없다.
-// (기기를 옮겨서까지 이어 쓰고 싶어지면 그때가 신호등이다)
+// 담기지 않는 것이 넷이고, 빠지는 **이유가 두 갈래**다:
+//  · `channelCache`·`subsCache` … *다시 만들 수 있는 것은 계약에 넣지 않는다*
+//    (Worker가·구글이 다시 준다. 게다가 크기는 제일 크다)
+//  · `myFeedback`·`feedbackDraft` … **원본이 내 서버에 있다.** 여기 건 사본이고,
+//    초안은 이 기기에서 쓰다 만 글이라 다른 기기로 따라갈 이유가 없다
 export function exportAll(): ExportPayload {
   return {
     version: EXPORT_VERSION,
@@ -202,20 +182,16 @@ export function exportAll(): ExportPayload {
 
 // ══ 받아온 백업을 이 기기에 적용한다 ══
 //
-// ⭐ **덮어쓰기 하나뿐이다**(2026-08-15). 동기화는 "누른 쪽이 통째로 이긴다"로 통일했다:
+// ⭐ **동기화는 덮어쓰기 하나뿐이다 — 누른 쪽이 통째로 이긴다.**
 //     올리기   … exportAll() 을 그대로 드라이브에 쓴다 (화면)
 //     내려받기 … replaceAll() 로 이 기기를 드라이브 그대로 만든다
 //
-// 합치기(importAll)가 있었으나 2026-08-15에 지웠다 — git 이력에 있다.
-// ⚠️ **지운 이유를 남겨둔다(같은 걸 다시 만들지 않으려고):** 합치기는 데이터가 절대 줄지
-//  않아 안전했지만, 바로 그래서 **아무것도 지울 수 없었다.** 지운 채널이 클라우드에서
-//  다시 딸려와 되살아나고, 그게 저장돼 클라우드에서도 영영 안 없어졌다.
-//  선별(active)이 이 앱의 중심이 된 뒤로는 **"줄이는 것"이 곧 기능**이라, 줄일 수 없는
-//  동기화는 쓸모가 없었다. 안전한 쪽이 늘 옳은 게 아니라 **무엇이 기능인지가 정한다.**
-//
-// ⚠️ 시각 기록이 없으므로 **마지막에 누른 쪽이 이긴다.** 어느 쪽이 더 새 것인지 앱은 모른다.
+// ⛔ **합치기로 되돌리지 않는다.** 합치기는 데이터가 절대 줄지 않아 안전해 보이지만,
+//  바로 그래서 **아무것도 지울 수 없다** — 지운 채널이 클라우드에서 다시 딸려와 되살아난다.
+//  선별(active)이 중심인 앱에서는 **"줄이는 것"이 곧 기능**이다.
+// ⚠️ 시각 기록이 없으므로 **마지막에 누른 쪽이 이긴다.** 어느 쪽이 더 새 것인지 앱은 모른다 —
 //  양쪽에서 번갈아 고치려면 필드별 시각이 필요하다(→ ROADMAP의 activeAt·tombstone).
-//
+
 // 백업 한 장을 검사해 쓸 수 있는 모양으로 돌려준다.
 // 내용이 손상됐어도 읽을 수 있는 부분만 읽는다 — 모양이 틀린 항목은 조용히 건너뛴다.
 function readPayload(payload: unknown) {

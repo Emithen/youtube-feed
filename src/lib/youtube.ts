@@ -1,37 +1,22 @@
 // youtube.ts — 구글 로그인(OAuth)으로 내 유튜브 데이터를 직접 읽는다.
 //
-// 왜 Worker를 안 거치나:
-//  Worker를 만든 이유는 ① CORS 우회 ② API 키 숨기기 였는데, OAuth 호출은 **둘 다 해당이 없다.**
-//   ① googleapis.com은 CORS를 허용한다 (유튜브 RSS와 달리)
-//   ② 토큰은 공용 비밀이 아니라 사용자 본인 것이다 — 오히려 남의 서버로 보내지 않는 편이 안전하다
-//  그래서 브라우저가 직접 부른다. worker.ts의 형제이지 대체가 아니다(RSS 경로는 계속 Worker).
+// 왜 Worker를 안 거치나: 릴레이의 존재 이유 ① CORS 우회 ② API 키 숨기기가 **둘 다 해당이 없다.**
+//  ① googleapis.com은 CORS를 허용한다 (유튜브 RSS와 달리)
+//  ② 토큰은 공용 비밀이 아니라 사용자 본인 것이다 — 남의 서버로 안 보내는 편이 오히려 안전하다
+// → worker.ts의 **형제이지 대체가 아니다** (RSS 채널 목록은 계속 Worker를 탄다).
 //
-// ⛔ "나중에 볼"(WL)은 여기서도 못 읽는다. 2016-09-12부터 로그인한 본인에게도 빈 목록이다.
-//    (relatedPlaylists.watchLater는 "WL" 문자열만 주고 playlistItems.list는 빈 배열)
-//    → watchme 재생목록 우회는 로그인 뒤에도 그대로 유지한다.
-//
-// 토큰은 1시간짜리이고 refresh token이 없다(정적 사이트의 대가).
-//
-// ⚠️ **2026-08-15에 뒤집었다.** 원래는 "메모리에만 두고 페이지를 열 때 조용히 재발급받는 편이
-//  안전하다"였는데, **그 전제가 틀렸다.** GIS의 `prompt: ""`(silent)는 동의 화면만 건너뛸 뿐
-//  **팝업 창은 그대로 연다.** 그래서 새로고침할 때마다 구글 창이 뜨거나 팝업 차단에 막혔다
-//  (콘솔에 `Failed to open popup window`가 쌓였다). 조용한 재발급이 공짜가 아니었던 것.
-//  → 토큰을 localStorage에 두고 새로고침 너머로 살린다. **열 때 자동 로그인은 하지 않는다.**
-//  대가: 토큰이 디스크에 남는다. 1시간 뒤 만료되고, 로그아웃하면 지운다.
+// ⛔ "나중에 볼"(WL)은 로그인해도 못 읽는다 — 본인에게도 빈 목록을 준다
+//  (`relatedPlaylists.watchLater`는 "WL" 문자열만, `playlistItems.list`는 빈 배열).
+//  → watchme 재생목록 우회는 로그인 뒤에도 그대로 유지한다.
 
-// ⚠️ 여기에 Google Cloud Console에서 만든 OAuth 클라이언트 ID를 붙여넣는다.
-//  클라이언트 "시크릿"은 쓰지 않는다. 클라이언트 ID는 비밀이 아니라서 공개 저장소에 있어도 된다
-//  (승인된 JavaScript 원본으로 도메인이 제한되기 때문).
 import type { AppError, Video } from "./types";
 
 // ── 구글 아이덴티티 서비스(GIS)의 모양 ──
 // 스크립트를 <script>로 불러오므로 타입이 따로 안 온다. 쓰는 만큼만 여기서 선언한다.
 //
-// ⭐ **2026-08-25에 토큰 모델 → 코드 모델로 갈아탔다.** 그전엔 `initTokenClient`로 액세스
-//  토큰을 브라우저가 직접 받았는데, 그 응답에는 **`id_token`이 없다**(인가만 하고 신원은
-//  안 준다). 서버가 "이 요청이 누구인지"를 알아야 해서 코드 모델로 옮겼다.
-//  → 이제 브라우저는 **인가 코드만** 받고, 토큰으로 바꾸는 일은 `/api/auth`가 한다.
-//    근거는 ROADMAP.md «🔐 인증 설계 확정».
+// ⭐ **코드 모델**(`initCodeClient`)을 쓴다. 토큰 모델의 응답에는 `id_token`이 없어서
+//  — 인가만 하고 신원은 안 준다 — 서버가 "이 요청이 누구인지"를 알 길이 없다.
+//  → 브라우저는 **인가 코드만** 받고, 토큰으로 바꾸는 일은 `/api/auth`가 한다.
 type CodeResponse = { code?: string; scope?: string; error?: string; error_description?: string };
 type CodeClient = { requestCode: () => void };
 
@@ -54,21 +39,19 @@ declare global {
   }
 }
 
-// ⚠️ `CLIENT_ID`는 이제 여기 없다 — **서버(`api/auth.ts`)도 같은 값이 필요해져서** 공유
-//  모듈로 옮겼다. 두 곳에 적어두면 어긋날 수 있고, 어긋나면 증상이 «aud 불일치»라
-//  진단이 엉뚱한 데로 간다.
+// ⚠️ `CLIENT_ID`는 **서버(`api/auth.ts`)도 같은 값을 쓰므로** 공유 모듈에 둔다.
+//  두 곳에 적으면 어긋나고, 어긋나면 증상이 «aud 불일치»라 진단이 엉뚱한 데로 간다.
 export { CLIENT_ID } from "./oauth-config";
 import { CLIENT_ID } from "./oauth-config";
 
 // 스코프 셋. **한 번의 로그인으로 전부 받는다** — 사용자에겐 여전히 버튼 하나다.
-//  ① openid           … **신원**. 이게 있어야 서버가 ID 토큰을 받고 `sub`를 꺼낸다 (2026-08-25 추가)
+//  ① openid           … **신원.** 이게 있어야 서버가 ID 토큰을 받아 `sub`를 꺼낸다
 //  ② youtube.readonly … 읽기 전용 하나로 구독·재생목록·영상 조회가 전부 커버된다
-//  ③ drive.appdata    … **앱 전용 숨은 폴더에만** 접근한다(2026-08-04, 기기 동기화).
+//  ③ drive.appdata    … **앱 전용 숨은 폴더에만** 접근한다(기기 동기화).
 //     사용자의 다른 드라이브 파일은 보이지도 않는다 — 드라이브 권한 중 가장 좁은 것.
-// ⛔ `email`·`profile`은 **일부러 안 받는다.** 필요한 건 `sub` 하나뿐이고,
-//    안 받으면 실수로 저장할 일도 없다(`api/auth.ts`가 다른 클레임을 안 읽는 것과 같은 이유).
-// ⚠️ 스코프를 늘리면 **동의 화면을 다시 받아야 한다.** ①을 더한 2026-08-25부터 기존
-//    사용자(테스터 4명 포함)도 한 번은 로그인 버튼을 눌러야 한다.
+// ⛔ `email`·`profile`은 **일부러 안 받는다.** 필요한 건 `sub` 하나뿐이고, 안 받으면
+//    실수로 저장할 일도 없다(`api/auth.ts`가 다른 클레임을 안 읽는 것과 같은 이유).
+// ⚠️ 스코프를 늘리면 **기존 사용자도 동의 화면을 다시 거쳐야 한다.**
 const SCOPE = [
   "openid",
   "https://www.googleapis.com/auth/youtube.readonly",
@@ -84,9 +67,11 @@ let expiresAt = 0;
 export const isSignedIn = () => !!token && Date.now() < expiresAt;
 
 // ── 토큰 보관 (localStorage) ──
-// ⚠️ 이 키만 storage.js 밖에 있다. 토큰은 **앱 데이터가 아니라 세션**이고,
-//    무엇보다 `exportAll`에 절대 실리면 안 되기 때문이다(드라이브에 남의 손이 닿는 곳으로 간다).
-//    storage.ts의 KEYS 주석에도 이 예외를 적어뒀다.
+// 액세스 토큰은 1시간짜리이고 refresh 토큰은 저장하지 않는다.
+// ⭐ 토큰을 새로고침 너머로 살리되 **열 때 자동 로그인은 하지 않는다.** GIS의 silent 재발급은
+//  동의 화면만 건너뛸 뿐 **팝업 창은 그대로 열어서**, 새로고침마다 창이 뜨거나 차단당한다.
+//  대가: 토큰이 디스크에 남는다(1시간 뒤 만료, 로그아웃하면 지운다).
+// ⛔ 이 키만 storage.ts 밖에 둔다 — KEYS에 들어가면 `exportAll`에 실려 드라이브로 나간다.
 const TOKEN_KEY = "authToken";
 
 // localStorage는 사용자가 손댈 수 있는 곳이라, 깨진 값이 있어도 앱이 죽지 않게 감싼다.
@@ -124,8 +109,7 @@ export const onAuthChange = (fn: (on: boolean) => void) => listeners.add(fn);
 const notify = () => listeners.forEach((fn) => fn(isSignedIn()));
 
 // ⭐ **실패를 종류로 가른다.** 「취소했다」와 「서버가 거절했다」는 사람이 할 일이 다르다 —
-//  앞은 다시 누르면 되고, 뒤는 설정을 봐야 한다. 07-31에 세운 «무엇이 실패했나보다
-//  어디까지 갔나» 규칙을 로그인에도 그대로 적용한다(90-gotchas 15).
+//  앞은 다시 누르면 되고, 뒤는 설정을 봐야 한다.
 export type AuthResult = { ok: true } | { ok: false; reason: "cancelled" | "server" | "script"; message: string };
 
 // GIS(구글 아이덴티티 서비스) 스크립트는 index.html에서 비동기로 불러온다.
@@ -139,13 +123,9 @@ async function ensureGis() {
   return gis;
 }
 
-// ⚠️ **`silent` 옵션이 사라졌다.** 코드 모델(`initCodeClient`)에는 `prompt` 파라미터가
-//  아예 없어서 「동의 창 없이 조용히」를 지시할 방법이 없다. 어차피 2026-08-15에 자동
-//  재발급을 걷어냈고(90-gotchas 21 — silent가 팝업을 열어 차단당했다) 부르는 곳도 없었다.
-//
-// ⭐ 클라이언트를 **매번 새로 만든다.** 예전엔 하나를 만들어두고 `callback`을 갈아끼웠는데,
-//  코드 모델은 그 필드를 갈아끼워도 되는지 문서가 보장하지 않는다. 만드는 데 네트워크가
-//  들지 않으므로 **보장되지 않는 것에 기대는 대신 매번 만든다.**
+// ⚠️ **「조용히 로그인」은 불가능하다.** 코드 모델에는 `prompt` 파라미터가 아예 없다.
+// ⭐ 클라이언트를 **매번 새로 만든다.** 하나를 만들어두고 `callback`을 갈아끼워도 되는지는
+//  문서가 보장하지 않는데, 만드는 데 네트워크가 안 드니 보장 안 된 것에 기대지 않는다.
 export async function signIn(): Promise<AuthResult> {
   let gis: NonNullable<NonNullable<NonNullable<Window["google"]>["accounts"]>["oauth2"]>;
   try {
@@ -199,13 +179,11 @@ export async function signIn(): Promise<AuthResult> {
   return { ok: true };
 }
 
-// ⭐ **로그아웃은 이제 두 곳을 끈다** (2026-08-25): 브라우저의 토큰과 **서버의 세션**.
-//  로컬만 지우면 화면은 로그아웃으로 보이는데 서버는 여전히 나로 알고 있다 —
-//  같은 브라우저를 쓰는 다음 사람이 내 데이터에 접근한다.
-//
-// ⚠️ 순서를 이렇게 잡은 이유: **로컬을 먼저 지운다.** 서버가 안 되는데 로그아웃 자체를
-//  막으면, 공용 컴퓨터에서 지금 당장 나가야 하는 사람이 못 나간다. 대신 서버 쪽이
-//  실패하면 **조용히 넘기지 않고 말해준다** — 그래야 사람이 다른 수를 쓴다.
+// ⭐ **로그아웃은 두 곳을 끈다**: 브라우저의 토큰과 **서버의 세션.** 로컬만 지우면 화면은
+//  로그아웃으로 보이는데 서버는 여전히 나로 알고 있다 — 같은 브라우저를 쓰는 다음 사람이
+//  내 데이터에 접근한다.
+// ⚠️ **로컬을 먼저 지운다.** 서버가 안 되는데 로그아웃 자체를 막으면, 공용 컴퓨터에서 지금
+//  당장 나가야 하는 사람이 못 나간다. 대신 서버 쪽이 실패하면 **조용히 넘기지 않고 말해준다.**
 export async function signOut(): Promise<AuthResult> {
   const revoked = token;
   token = null;
@@ -221,8 +199,8 @@ export async function signOut(): Promise<AuthResult> {
     result = { ok: false, reason: "server", message: "서버 세션을 못 끊었어 (연결 실패)." };
   }
 
-  // ⚠️ 구글 쪽 동의까지 취소한다 → **다음 로그인 때 동의 화면이 다시 뜬다.** 원래 동작이고,
-  //  "로그아웃했는데 권한은 남아 있는" 상태를 안 만드는 쪽이 맞다고 본 것이다.
+  // ⚠️ 구글 쪽 동의까지 취소한다 → **다음 로그인 때 동의 화면이 다시 뜬다.** 의도된 것이다 —
+  //  "로그아웃했는데 권한은 남아 있는" 상태를 안 만든다.
   if (revoked) window.google?.accounts?.oauth2?.revoke(revoked, () => {});
   return result;
 }
@@ -314,7 +292,7 @@ export function fetchSubscriptions(onProgress?: (got: number, total: number) => 
   );
 }
 
-// ── 재생목록 → worker.ts의 /playlist와 **같은 모양** ──
+// ── 재생목록 → Worker의 채널 피드와 **같은 모양** ──
 // 그래서 화면 코드는 어느 쪽에서 받았는지 몰라도 된다.
 export async function fetchPlaylist(id: string) {
   let skipped = 0;
@@ -343,7 +321,3 @@ export async function fetchPlaylist(id: string) {
   );
   return { playlistId: id, count: videos.length, skipped, videos };
 }
-
-// videos.list(ID 묶음 → 영상 상세)를 부르던 fetchVideos/fetchVideosChunked는
-// "나중에 볼에서 뽑은 ID 가져오기"만 쓰던 것이라 2026-08-07에 그 기능과 함께 지웠다.
-// 풀은 이제 재생목록 동기화(fetchPlaylist)로만 채운다. 되살릴 일이 생기면 git 이력에서 꺼낸다.
