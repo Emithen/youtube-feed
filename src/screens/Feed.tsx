@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import * as store from "../lib/storage";
 import * as worker from "../lib/worker";
-import { isNew, videoKey } from "../lib/video";
+import { exactTime, isNew, relativeTime, videoKey } from "../lib/video";
 import type { Channel, ChannelState, Video } from "../lib/types";
 import { SectionTitle, btnGhostSm } from "../ui";
 
@@ -56,7 +56,8 @@ function VideoRow({
     <p className="my-[7px]">
       {/* NEW 배지는 줄 맨 앞에 둬야 목록을 훑을 때 눈에 띈다 */}
       {badge && (
-        <span className="inline-block mr-[7px] px-1.5 py-px rounded-[5px] bg-accent text-accent-ink text-[.68rem] font-bold tracking-[.04em] align-[2px]">
+        /* 바탕이 accent 가 아니라 **link** 다 — .68rem 굵은 글자에 3.29:1 은 미달이었다 */
+        <span className="inline-block mr-[7px] px-1.5 py-px rounded-[5px] bg-link text-on-link text-[.68rem] font-bold tracking-[.04em] align-[2px]">
           NEW
         </span>
       )}
@@ -75,29 +76,51 @@ function VideoRow({
         target="_blank"
         rel="noopener"
         onClick={onOpen}
+        // ⭐ **본 영상은 흐리게 하지 않는다** (2026-08-22). opacity-45 는 글자를
+        //  배경 쪽으로 끌어내려 대비를 깬다 — 다크에서는 거의 안 보였다. 대신 색을
+        //  한 단 낮춘다(link → muted): 「덜 중요하다」는 읽히면서 대비는 지켜진다.
+        //  ⚠️ 흐림을 쓸 자리는 **정보가 없는 쪽**이다(썸네일이 붙으면 거기에 건다).
+        // ⚠️ font-semibold 를 공통 자리에 두면 안 된다 — seen 쪽 font-medium 과 **둘 다 붙어**
+        //  CSS 파일 순서로 semibold 가 이긴다(실측 w=600). 굵기는 갈래마다 하나씩만 적는다.
         className={
-          "text-[1.05rem] no-underline text-accent font-semibold hover:underline " +
-          (seen ? "opacity-45 font-medium" : "")
+          "text-[1.05rem] no-underline hover:underline " +
+          (seen ? "text-ink-muted font-medium" : "text-link font-semibold")
         }
       >
         {/* 제목은 그냥 텍스트로 넣는다 — React가 이스케이프하므로 XSS 걱정이 없다 */}
         {v.title}
       </a>
-      {v.date && <small className={"text-muted " + (seen ? "opacity-60" : "")}> {v.date}</small>}
-      <button
+      {/* ⚠️ 날짜와 토글은 **함께 움직여야 한다.** 히트영역을 키운 뒤 ✓ 가 혼자
+          다음 줄로 떨어지는 걸 확인했다 — 제목만 줄바꿈하고 이 덩어리는 안 쪼개진다. */}
+      <span className="whitespace-nowrap">
+        {v.date && (
+          // 상대 시각은 원래 값을 지우므로 정확한 시각을 title 로 함께 단다.
+          <small className="text-muted" title={exactTime(v)}>
+            {" "}
+            {relativeTime(v)}
+          </small>
+        )}
+        <button
         type="button"
         onClick={onToggle}
         aria-pressed={seen}
         title={seen ? "본 영상 — 눌러서 해제" : "안 본 영상 — 눌러서 봤음 표시"}
         aria-label={seen ? "본 영상 — 눌러서 해제" : "안 본 영상 — 눌러서 봤음 표시"}
+        // ⚠️ 기호만 두면 히트영역이 20px 안팎이라 폰에서 옆 링크가 먼저 잡힌다.
+        //  ⭐ 패딩으로 넓히는 것만으로는 32×38 이었다(실측). 크기를 **명시**한다.
         className={
-          "ml-2 px-1 text-[.85rem] leading-none bg-transparent border-0 cursor-pointer " +
-          (seen ? "text-accent opacity-90" : "text-muted opacity-55 hover:opacity-100")
+          "inline-flex items-center justify-center w-11 h-11 align-middle " +
+          // 히트영역은 44×44 로 두고 **차지하는 자리만** 음수 마진으로 줄인다
+          // (44 → 세로 20px · 가로 24px). 채널 목록의 ☑/☐ 가 쓰는 수법과 같다.
+          "-my-3 -mr-3 -ml-1 " +
+          "text-[.85rem] leading-none bg-transparent border-0 cursor-pointer " +
+          (seen ? "text-link" : "text-muted opacity-70 hover:opacity-100")
         }
-      >
-        {/* 색만이 아니라 기호로도 구분한다 (채널 토글의 ☑/☐ 와 같은 규칙) */}
-        {seen ? "✓" : "○"}
-      </button>
+        >
+          {/* 색만이 아니라 기호로도 구분한다 (채널 토글의 ☑/☐ 와 같은 규칙) */}
+          {seen ? "✓" : "○"}
+        </button>
+      </span>
     </p>
   );
 }
@@ -111,7 +134,6 @@ export default function Feed({
   takeFresh,
   onRefresh,
   onResult,
-  onDelete,
   hasWatched,
   markWatched,
   toggleWatched,
@@ -127,7 +149,6 @@ export default function Feed({
   takeFresh: () => boolean;
   onRefresh: () => void;
   onResult: (channelId: string, result: Loaded) => void;
-  onDelete: (channelId: string) => void;
   hasWatched: (id: string) => boolean;
   markWatched: (id: string) => void;
   toggleWatched: (id: string) => void;
@@ -236,16 +257,11 @@ export default function Feed({
 
         return (
           <div key={ch.channelId}>
-            <SectionTitle>
-              {`[${ch.topic}] ${ch.name}`}
-              <button
-                type="button"
-                onClick={() => onDelete(ch.channelId)}
-                className="ml-2.5 px-2 py-px align-middle text-[.75rem] font-medium text-danger bg-transparent border border-danger-line rounded-md cursor-pointer"
-              >
-                삭제
-              </button>
-            </SectionTitle>
+            {/* ⭐ **삭제 버튼을 뺐다** (2026-08-22). 훑는 화면에 되돌릴 수 없는 행동이
+                섞여 있었고, 지운 결과는 동기화가 대칭 덮어쓰기라 다음 「☁️ 올리기」에
+                **드라이브까지 전파**된다. 2026-08-15에 목록 쪽에 삭제를 붙이면서
+                (꺼진 채널은 피드에서 사라지므로) 이쪽의 역할은 이미 끝나 있었다. */}
+            <SectionTitle>{`[${ch.topic}] ${ch.name}`}</SectionTitle>
             {rows.map((v, i) => {
               const key = videoKey(v);
               return (

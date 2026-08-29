@@ -99,7 +99,7 @@ export default function Feedback({ signedIn, channels }: { signedIn: boolean; ch
             className={
               "px-3.5 py-2 rounded-lg text-base cursor-pointer border " +
               (kind === k
-                ? "bg-accent text-accent-ink border-transparent font-semibold"
+                ? "bg-link text-on-link border-transparent font-semibold"
                 : "bg-transparent text-muted border-line")
             }
           >
